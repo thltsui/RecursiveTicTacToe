@@ -1,0 +1,23 @@
+Training Data Summary
+=====================
+
+Generated: 2025-09-03T18:15:46.100709
+Total Games: 5
+
+Game Statistics:
+Player 1 Wins: 2 (40.00%)
+Player 2 Wins: 3 (60.00%)
+Draws: 0 (0.00%)
+Average Moves: 62.4
+
+Completion Statistics:
+Complete Games: 5
+Completion Rate: 100.00%
+Average Completion Rate: 77.04%
+
+Data Format:
+- Games: 5 games
+- Move histories: 5 games
+- Final boards: 9x9 arrays
+- Small board wins: 9-element arrays
+- Replay verified: 5/5 games

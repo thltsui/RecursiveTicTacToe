@@ -7,25 +7,50 @@
 
 ## Installation
 
-### Option 1: Install from requirements.txt
+### Option 1: Using Poetry (Recommended)
+```bash
+# Install Poetry (if not already installed)
+curl -sSL https://install.python-poetry.org | python3 -
+
+# Install dependencies
+poetry install
+
+# Play the game
+poetry run python main.py
+```
+
+### Option 2: Install from requirements.txt
 ```bash
 pip install -r requirements.txt
 ```
 
-### Option 2: Install using setup.py
+### Option 3: Install using setup.py
 ```bash
 pip install -e .
 ```
 
-### Option 3: Install dependencies manually
+### Option 4: Install dependencies manually
 ```bash
 pip install numpy torch
+```
+
+### Option 5: Use the installation script
+```bash
+# On macOS/Linux
+./install_poetry.sh
+
+# On Windows
+install_poetry.bat
 ```
 
 ## Quick Test
 
 Run the basic functionality test to ensure everything is working:
 ```bash
+# Using Poetry
+poetry run python basic_test.py
+
+# Using pip
 python3 basic_test.py
 ```
 
@@ -33,6 +58,10 @@ python3 basic_test.py
 
 ### Interactive Menu
 ```bash
+# Using Poetry
+poetry run python main.py
+
+# Using pip
 python3 main.py
 ```
 Then choose option 1 to play a game.
@@ -40,15 +69,23 @@ Then choose option 1 to play a game.
 ### Direct Command
 ```bash
 # Human vs Human
+poetry run python main.py play --mode human-human
+# or
 python3 main.py play --mode human-human
 
 # Human vs Random AI
+poetry run python main.py play --mode human-random
+# or
 python3 main.py play --mode human-random
 
 # Random vs Human
+poetry run python main.py play --mode random-human
+# or
 python3 main.py play --mode random-human
 
 # Random vs Random
+poetry run python main.py play --mode random-random
+# or
 python3 main.py play --mode random-random
 ```
 
@@ -56,12 +93,20 @@ python3 main.py play --mode random-random
 
 See a quick game between two random players:
 ```bash
+# Using Poetry
+poetry run python demo.py
+
+# Using pip
 python3 demo.py
 ```
 
 ## Run Tests
 
 ```bash
+# Using Poetry
+poetry run python main.py test
+
+# Using pip
 python3 main.py test
 ```
 

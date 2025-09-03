@@ -1,2 +1,10 @@
+# Production dependencies
 numpy>=1.21.0
-torch>=1.9.0
+torch>=2.0.0
+
+# Development dependencies (optional)
+pytest>=6.0
+pytest-cov>=2.0
+black>=21.0
+flake8>=3.8
+mypy>=0.910

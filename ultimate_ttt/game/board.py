@@ -70,9 +70,12 @@ class UltimateTTTBoard:
         if self.game_over:
             return False
         
-        # Check if big_index is constrained
+        # Check if big_index is constrained (but allow override if constrained board is full/won)
         if self.next_board != -1 and big_index != self.next_board:
-            return False
+            # Only enforce constraint if the constrained board has available moves
+            if (self.small_board_wins[self.next_board] == 0 and 
+                not self.small_board_full[self.next_board]):
+                return False
         
         # Check if small board is already won or full
         if self.small_board_wins[big_index] != 0 or self.small_board_full[big_index]:
@@ -96,15 +99,17 @@ class UltimateTTTBoard:
         if self.game_over:
             return valid_moves
         
-        # If next_board is constrained, only check that board
+        # If next_board is constrained, check that board first
         if self.next_board != -1:
+            # Check if the constrained board has available moves
             if (self.small_board_wins[self.next_board] == 0 and 
                 not self.small_board_full[self.next_board]):
                 for small_index in range(9):
                     if self.board[self.next_board][small_index] == EMPTY:
                         valid_moves.append((self.next_board, small_index))
-        else:
-            # Check all boards
+        
+        # If no moves in constrained board (or no constraint), check all boards
+        if not valid_moves:
             for big_index in range(9):
                 if (self.small_board_wins[big_index] == 0 and 
                     not self.small_board_full[big_index]):

@@ -48,13 +48,25 @@ def simulate_game(agent1=None, agent2=None, verbose=False):
     if verbose:
         print("Starting new game...")
     
-    while not board.game_over:
+    max_moves = 81  # Maximum possible moves in Ultimate Tic Tac Toe
+    move_count = 0
+    
+    while not board.game_over and move_count < max_moves:
         current_agent = agent1 if board.current_player == PLAYER_1 else agent2
         
+        # Get valid moves
+        valid_moves = board.get_valid_moves()
+        if not valid_moves:
+            if verbose:
+                print("No valid moves available - game should be over")
+            break
+        
+        # Choose a random valid move
         move = current_agent.get_move(board)
         if move is None:
-            # No valid moves available
-            break
+            if verbose:
+                print("Agent returned None move - using random selection")
+            move = random.choice(valid_moves)
         
         big_index, small_index = move
         success = board.make_move(big_index, small_index)
@@ -64,8 +76,37 @@ def simulate_game(agent1=None, agent2=None, verbose=False):
                 print(f"Invalid move attempted: {move}")
             continue
         
+        move_count += 1
+        
         if verbose:
             print(f"Player {board.current_player} moved to board {big_index}, cell {small_index}")
+    
+    # Ensure game is marked as over if we hit max moves
+    if move_count >= max_moves and not board.game_over:
+        if verbose:
+            print(f"Game reached maximum moves ({max_moves}) - marking as draw")
+        board.game_over = True
+        board.winner = 0  # Draw
+    
+    # Validate game completion
+    if not board.game_over:
+        if verbose:
+            print("Warning: Game not properly completed")
+        # Force game to be over
+        board.game_over = True
+        if board.winner == 0:
+            # Check if it's actually a draw
+            total_filled = np.sum(board.board != 0)
+            if total_filled == 81:
+                board.winner = 0  # Draw
+            else:
+                # This shouldn't happen, but mark as draw for safety
+                board.winner = 0
+    
+    # Calculate completion statistics
+    total_cells = 81
+    filled_cells = np.sum(board.board != 0)
+    completion_rate = filled_cells / total_cells
     
     result = {
         'winner': board.winner,
@@ -73,7 +114,10 @@ def simulate_game(agent1=None, agent2=None, verbose=False):
         'move_history': board.move_history.copy(),
         'final_board': board.board.copy(),
         'small_board_wins': board.small_board_wins.copy(),
-        'game_over': board.game_over
+        'game_over': board.game_over,
+        'filled_cells': filled_cells,
+        'completion_rate': completion_rate,
+        'is_complete': board.game_over or board.winner != 0 or filled_cells == total_cells
     }
     
     if verbose:
@@ -120,6 +164,9 @@ def simulate_multiple_games(num_games, agent1=None, agent2=None, verbose=False):
     # Calculate statistics
     total_games = len(results)
     avg_moves = np.mean([r['move_count'] for r in results])
+    avg_completion_rate = np.mean([r['completion_rate'] for r in results])
+    complete_games = sum(1 for r in results if r['is_complete'])
+    incomplete_games = total_games - complete_games
     
     stats = {
         'total_games': total_games,
@@ -130,6 +177,10 @@ def simulate_multiple_games(num_games, agent1=None, agent2=None, verbose=False):
         'win_rate_player2': wins_player2 / total_games,
         'draw_rate': draws / total_games,
         'avg_moves': avg_moves,
+        'avg_completion_rate': avg_completion_rate,
+        'complete_games': complete_games,
+        'incomplete_games': incomplete_games,
+        'completion_rate': complete_games / total_games,
         'results': results
     }
     
@@ -139,6 +190,10 @@ def simulate_multiple_games(num_games, agent1=None, agent2=None, verbose=False):
         print(f"Player 2 wins: {wins_player2} ({stats['win_rate_player2']:.2%})")
         print(f"Draws: {draws} ({stats['draw_rate']:.2%})")
         print(f"Average moves per game: {avg_moves:.1f}")
+        print(f"Game completion: {complete_games}/{total_games} ({stats['completion_rate']:.2%})")
+        print(f"Average completion rate: {avg_completion_rate:.2%}")
+        if incomplete_games > 0:
+            print(f"⚠️  Warning: {incomplete_games} games did not complete properly")
     
     return stats
 

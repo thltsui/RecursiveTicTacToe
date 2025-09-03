@@ -45,6 +45,10 @@ def generate_training_data(num_games, output_dir=None, save_format='both'):
         board = UltimateTTTBoard()
         state_sequence = []
         
+        # Validate the game result
+        if not result.get('is_complete', False):
+            print(f"Warning: Game {i} may not be complete (completion rate: {result.get('completion_rate', 0):.2%})")
+        
         for big_index, small_index, player in result['move_history']:
             # Get current state tensor
             state_tensor = board.get_state_tensor()
@@ -57,14 +61,22 @@ def generate_training_data(num_games, output_dir=None, save_format='both'):
         final_state = board.get_state_tensor()
         state_sequence.append(final_state)
         
+        # Verify the replay matches the original result
+        replay_winner = board.winner
+        replay_moves = board.move_count
+        if replay_winner != result['winner'] or replay_moves != result['move_count']:
+            print(f"Warning: Game {i} replay mismatch - Original: winner={result['winner']}, moves={result['move_count']}, Replay: winner={replay_winner}, moves={replay_moves}")
+        
         game_data = {
             'game_id': i,
             'move_history': result['move_history'],
-            'state_sequence': state_sequence,
             'winner': result['winner'],
             'move_count': result['move_count'],
-            'final_board': result['final_board'],
-            'small_board_wins': result['small_board_wins']
+            'final_board': result['final_board'].tolist() if hasattr(result['final_board'], 'tolist') else result['final_board'],
+            'small_board_wins': result['small_board_wins'].tolist() if hasattr(result['small_board_wins'], 'tolist') else result['small_board_wins'],
+            'completion_rate': result.get('completion_rate', 0),
+            'is_complete': result.get('is_complete', False),
+            'replay_verified': (replay_winner == result['winner'] and replay_moves == result['move_count'])
         }
         
         training_data['games'].append(game_data)
@@ -87,19 +99,46 @@ def generate_training_data(num_games, output_dir=None, save_format='both'):
         # Convert numpy arrays to lists for JSON
         json_data = {}
         for key, value in training_data.items():
+            print(f"Processing key: {key}, type: {type(value)}")
             if key == 'games':
                 json_games = []
-                for game in value:
+                for i, game in enumerate(value):
+                    print(f"Processing game {i}")
                     json_game = {}
                     for k, v in game.items():
-                        if isinstance(v, np.ndarray):
-                            json_game[k] = v.tolist()
-                        else:
-                            json_game[k] = v
+                        try:
+                            if isinstance(v, np.ndarray):
+                                print(f"Converting numpy array for key '{k}', shape: {v.shape}, dtype: {v.dtype}")
+                                json_game[k] = v.tolist()
+                            elif isinstance(v, np.integer):
+                                json_game[k] = int(v)
+                            elif isinstance(v, np.floating):
+                                json_game[k] = float(v)
+                            elif isinstance(v, np.bool_):
+                                json_game[k] = bool(v)
+                            else:
+                                json_game[k] = v
+                        except Exception as e:
+                            print(f"Error serializing key '{k}' with value {v} (type: {type(v)}): {e}")
+                            # Try to convert to string as fallback
+                            json_game[k] = str(v)
                     json_games.append(json_game)
                 json_data[key] = json_games
             else:
-                json_data[key] = value
+                try:
+                    if isinstance(value, np.ndarray):
+                        json_data[key] = value.tolist()
+                    elif isinstance(value, np.integer):
+                        json_data[key] = int(value)
+                    elif isinstance(value, np.floating):
+                        json_data[key] = float(value)
+                    elif isinstance(value, np.bool_):
+                        json_data[key] = bool(value)
+                    else:
+                        json_data[key] = value
+                except Exception as e:
+                    print(f"Error serializing metadata key '{key}' with value {value} (type: {type(value)}): {e}")
+                    json_data[key] = str(value)
         
         json_filename = f"training_data_{timestamp}.json"
         json_filepath = os.path.join(output_dir, json_filename)
@@ -114,21 +153,34 @@ def generate_training_data(num_games, output_dir=None, save_format='both'):
         npy_filename = f"training_data_{timestamp}.npy"
         npy_filepath = os.path.join(output_dir, npy_filename)
         
-        # Extract state sequences and move histories
-        state_sequences = []
+        # Extract move histories and other data
         move_histories = []
         winners = []
+        final_boards = []
+        small_board_wins = []
+        
+        # Find maximum move count for padding
+        max_moves = max(len(game['move_history']) for game in training_data['games'])
         
         for game in training_data['games']:
-            state_sequences.append(np.array(game['state_sequence']))
-            move_histories.append(np.array(game['move_history']))
+            # Pad move history to max length with -1 (invalid move)
+            move_history = game['move_history']
+            if len(move_history) < max_moves:
+                padded_history = move_history + [(-1, -1, -1)] * (max_moves - len(move_history))
+            else:
+                padded_history = move_history
+            
+            move_histories.append(np.array(padded_history))
             winners.append(game['winner'])
+            final_boards.append(np.array(game['final_board']))
+            small_board_wins.append(np.array(game['small_board_wins']))
         
         np.savez_compressed(
             npy_filepath,
-            state_sequences=state_sequences,
-            move_histories=move_histories,
-            winners=winners,
+            move_histories=np.array(move_histories),
+            winners=np.array(winners),
+            final_boards=np.array(final_boards),
+            small_board_wins=np.array(small_board_wins),
             metadata=training_data
         )
         
@@ -148,10 +200,16 @@ def generate_training_data(num_games, output_dir=None, save_format='both'):
         f.write(f"Player 2 Wins: {stats['wins_player2']} ({stats['win_rate_player2']:.2%})\n")
         f.write(f"Draws: {stats['draws']} ({stats['draw_rate']:.2%})\n")
         f.write(f"Average Moves: {stats['avg_moves']:.1f}\n\n")
+        f.write(f"Completion Statistics:\n")
+        f.write(f"Complete Games: {stats.get('complete_games', 'N/A')}\n")
+        f.write(f"Completion Rate: {stats.get('completion_rate', 'N/A'):.2%}\n")
+        f.write(f"Average Completion Rate: {stats.get('avg_completion_rate', 'N/A'):.2%}\n\n")
         f.write(f"Data Format:\n")
-        f.write(f"- State sequences: {len(training_data['games'])} games\n")
-        f.write(f"- Each game has {len(training_data['games'][0]['state_sequence'])} states\n")
-        f.write(f"- State tensor shape: {training_data['games'][0]['state_sequence'][0].shape}\n")
+        f.write(f"- Games: {len(training_data['games'])} games\n")
+        f.write(f"- Move histories: {len(training_data['games'])} games\n")
+        f.write(f"- Final boards: 9x9 arrays\n")
+        f.write(f"- Small board wins: 9-element arrays\n")
+        f.write(f"- Replay verified: {sum(1 for g in training_data['games'] if g.get('replay_verified', False))}/{len(training_data['games'])} games\n")
     
     print(f"Summary saved: {summary_filepath}")
     

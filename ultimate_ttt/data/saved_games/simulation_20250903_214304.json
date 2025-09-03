@@ -1,0 +1,16 @@
+{
+  "total_games": 2,
+  "wins_player1": 1,
+  "wins_player2": 1,
+  "draws": 0,
+  "win_rate_player1": 0.5,
+  "win_rate_player2": 0.5,
+  "draw_rate": 0.0,
+  "avg_moves": 58.5,
+  "avg_completion_rate": 0.7222222222222222,
+  "complete_games": 2,
+  "incomplete_games": 0,
+  "completion_rate": 1.0,
+  "results": [
+    {
+      "winner": 

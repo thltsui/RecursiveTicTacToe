@@ -32,16 +32,58 @@ Small Cell Indices within each board (0-8):
 
 ## Installation
 
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd ultimate_ttt
-```
+### Option 1: Using Poetry (Recommended)
 
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+1. **Install Poetry** (if not already installed):
+   ```bash
+   curl -sSL https://install.python-poetry.org | python3 -
+   ```
+
+2. **Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd ultimate_ttt
+   ```
+
+3. **Install dependencies**:
+   ```bash
+   poetry install
+   ```
+
+4. **Play the game**:
+   ```bash
+   poetry run python main.py
+   ```
+
+### Option 2: Using pip
+
+1. **Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd ultimate_ttt
+   ```
+
+2. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Play the game**:
+   ```bash
+   python main.py
+   ```
+
+### Option 3: Manual Installation
+
+1. **Install Python dependencies manually**:
+   ```bash
+   pip install numpy torch
+   ```
+
+2. **Run the game**:
+   ```bash
+   python main.py
+   ```
 
 ## Usage
 
@@ -49,21 +91,33 @@ pip install -r requirements.txt
 
 Start the game with an interactive menu:
 ```bash
+# Using Poetry
+poetry run python main.py
+
+# Using pip
 python main.py
 ```
 
 Or directly play a specific mode:
 ```bash
 # Human vs Human
+poetry run python main.py play --mode human-human
+# or
 python main.py play --mode human-human
 
 # Human vs Random AI
+poetry run python main.py play --mode human-random
+# or
 python main.py play --mode human-random
 
 # Random vs Human
+poetry run python main.py play --mode random-human
+# or
 python main.py play --mode random-human
 
 # Random vs Random
+poetry run python main.py play --mode random-random
+# or
 python main.py play --mode random-random
 ```
 
