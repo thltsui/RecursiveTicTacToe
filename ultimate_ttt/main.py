@@ -72,6 +72,15 @@ Examples:
     # Demo command
     demo_parser = subparsers.add_parser('demo', help='Show a demo game')
     
+    # Watch command
+    watch_parser = subparsers.add_parser('watch', help='Watch AI players battle')
+    watch_parser.add_argument('--delay', '-d', type=float, default=1.0,
+                             help='Delay between moves in seconds (default: 1.0)')
+    watch_parser.add_argument('--fast', '-f', action='store_true',
+                             help='Fast mode (0.5 second delay)')
+    watch_parser.add_argument('--slow', '-s', action='store_true',
+                             help='Slow mode (2.0 second delay)')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -90,6 +99,8 @@ Examples:
             run_test_command()
         elif args.command == 'demo':
             run_demo_command()
+        elif args.command == 'watch':
+            run_watch_command(args)
         else:
             parser.print_help()
             
@@ -108,13 +119,14 @@ def show_interactive_menu():
     print("1. Play a game")
     print("2. Simulate random games")
     print("3. Generate training data")
-    print("4. Run tests")
-    print("5. Show demo")
-    print("6. Exit")
+    print("4. Watch AI game")
+    print("5. Run tests")
+    print("6. Show demo")
+    print("7. Exit")
     
     while True:
         try:
-            choice = input("\nEnter choice (1-6): ").strip()
+            choice = input("\nEnter choice (1-7): ").strip()
             
             if choice == '1':
                 show_play_menu()
@@ -126,16 +138,19 @@ def show_interactive_menu():
                 show_generate_menu()
                 break
             elif choice == '4':
-                run_test_command()
+                run_watch_command()
                 break
             elif choice == '5':
-                run_demo_command()
+                run_test_command()
                 break
             elif choice == '6':
+                run_demo_command()
+                break
+            elif choice == '7':
                 print("Goodbye!")
                 break
             else:
-                print("Invalid choice. Please enter 1-6.")
+                print("Invalid choice. Please enter 1-7.")
                 
         except KeyboardInterrupt:
             print("\nGoodbye!")
@@ -284,6 +299,62 @@ def run_demo_command():
             
     except Exception as e:
         print(f"Demo failed: {e}")
+
+
+def run_watch_command(args=None):
+    """Run a watchable game."""
+    print("Ultimate Tic Tac Toe Game Watcher")
+    print("=" * 40)
+    print("Watch two AI players battle it out in real-time!")
+    
+    try:
+        from watch_game import watch_random_game
+        
+        # Determine delay from arguments or ask user
+        if args and hasattr(args, 'delay'):
+            if args.fast:
+                delay = 0.5
+            elif args.slow:
+                delay = 2.0
+            else:
+                delay = args.delay
+        else:
+            # Ask for delay preference
+            print("\nChoose game speed:")
+            print("1. Fast (0.5s between moves)")
+            print("2. Normal (1.0s between moves)")
+            print("3. Slow (2.0s between moves)")
+            print("4. Custom delay")
+            
+            choice = input("\nEnter your choice (1-4): ").strip()
+            
+            if choice == "1":
+                delay = 0.5
+            elif choice == "2":
+                delay = 1.0
+            elif choice == "3":
+                delay = 2.0
+            elif choice == "4":
+                try:
+                    delay = float(input("Enter delay in seconds: "))
+                    if delay < 0.1:
+                        delay = 0.1
+                    elif delay > 5.0:
+                        delay = 5.0
+                except ValueError:
+                    delay = 1.0
+            else:
+                delay = 1.0
+        
+        print(f"\nStarting game with {delay}s delay between moves...")
+        print("Press Ctrl+C to stop watching at any time.")
+        
+        watch_random_game(delay=delay)
+        
+    except Exception as e:
+        print(f"Watch command failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == "__main__":

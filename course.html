@@ -1,0 +1,1632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ultimate Tic-Tac-Toe AlphaZero -- Interactive Course</title>
+<style>
+/* ========== RESET & VARIABLES ========== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0f1117;
+  --bg-card: #181b24;
+  --bg-code: #1e222d;
+  --bg-sidebar: #14161e;
+  --border: #2a2e3b;
+  --text: #c9cdd8;
+  --text-dim: #7c8190;
+  --text-bright: #e8ecf4;
+  --accent: #6c9eff;
+  --accent-dim: #3a5a9e;
+  --accent-glow: rgba(108, 158, 255, 0.12);
+  --green: #5de4a8;
+  --orange: #f0a050;
+  --red: #f07070;
+  --purple: #b48eff;
+  --yellow: #f0d060;
+  --cyan: #60d8e8;
+  --sidebar-w: 290px;
+  --header-h: 56px;
+  --radius: 8px;
+  --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+  --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+html { scroll-behavior: smooth; font-size: 15px; }
+
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.72;
+  overflow-x: hidden;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ========== HEADER ========== */
+.header {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  height: var(--header-h);
+  background: rgba(15, 17, 23, 0.88);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center;
+  padding: 0 24px;
+}
+.header-title {
+  font-size: 1.05rem; font-weight: 700; color: var(--text-bright);
+  letter-spacing: -0.02em;
+}
+.header-title span { color: var(--accent); }
+.header-burger {
+  display: none; background: none; border: none; color: var(--text);
+  font-size: 1.5rem; cursor: pointer; margin-right: 14px; padding: 4px 8px;
+}
+.header-right { margin-left: auto; font-size: 0.82rem; color: var(--text-dim); }
+
+/* ========== SIDEBAR ========== */
+.sidebar {
+  position: fixed; top: var(--header-h); left: 0; bottom: 0;
+  width: var(--sidebar-w);
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 20px 0 40px;
+  z-index: 90;
+  transition: transform 0.3s ease;
+}
+.sidebar::-webkit-scrollbar { width: 4px; }
+.sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+.sidebar .nav-group { padding: 0 16px; margin-bottom: 18px; }
+.sidebar .nav-group-label {
+  font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--text-dim); padding: 0 8px; margin-bottom: 6px;
+}
+.sidebar .nav-link {
+  display: block; padding: 6px 12px; border-radius: 6px;
+  font-size: 0.83rem; color: var(--text-dim); transition: all 0.15s;
+  cursor: pointer; line-height: 1.4;
+}
+.sidebar .nav-link:hover { color: var(--text-bright); background: rgba(108,158,255,0.06); text-decoration: none; }
+.sidebar .nav-link.active {
+  color: var(--accent); background: var(--accent-glow); font-weight: 600;
+}
+.sidebar .nav-link .ep-num {
+  display: inline-block; width: 26px; font-weight: 700;
+  font-size: 0.72rem; color: var(--accent-dim);
+}
+
+/* ========== MAIN ========== */
+.main {
+  margin-left: var(--sidebar-w);
+  margin-top: var(--header-h);
+  padding: 40px 48px 120px;
+  max-width: 880px;
+}
+
+/* ========== HERO ========== */
+.hero {
+  text-align: center; padding: 60px 20px 48px;
+}
+.hero h1 {
+  font-size: 2.4rem; font-weight: 800; color: var(--text-bright);
+  letter-spacing: -0.03em; line-height: 1.2;
+}
+.hero h1 span { color: var(--accent); }
+.hero .subtitle {
+  font-size: 1.05rem; color: var(--text-dim); margin-top: 12px; max-width: 600px;
+  margin-left: auto; margin-right: auto;
+}
+.hero .badge-row { margin-top: 20px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.badge {
+  font-size: 0.72rem; font-weight: 600; padding: 4px 12px; border-radius: 20px;
+  border: 1px solid var(--border); color: var(--text-dim); background: var(--bg-card);
+}
+.badge.green { border-color: var(--green); color: var(--green); }
+.badge.purple { border-color: var(--purple); color: var(--purple); }
+.badge.orange { border-color: var(--orange); color: var(--orange); }
+
+/* ========== EPISODE SECTIONS ========== */
+.episode {
+  margin-bottom: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.episode-header {
+  padding: 16px 22px;
+  cursor: pointer;
+  display: flex; align-items: center; gap: 14px;
+  user-select: none;
+  transition: background 0.15s;
+}
+.episode-header:hover { background: rgba(108,158,255,0.04); }
+.ep-badge {
+  flex-shrink: 0;
+  width: 38px; height: 38px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.78rem; font-weight: 800;
+  background: var(--accent-glow); color: var(--accent);
+  border: 1px solid var(--accent-dim);
+}
+.ep-info { flex: 1; }
+.ep-info h2 { font-size: 1.05rem; font-weight: 700; color: var(--text-bright); line-height: 1.3; }
+.ep-info .ep-tagline { font-size: 0.8rem; color: var(--text-dim); margin-top: 2px; }
+.ep-chevron {
+  font-size: 1.1rem; color: var(--text-dim); transition: transform 0.25s;
+  flex-shrink: 0;
+}
+.episode.open .ep-chevron { transform: rotate(90deg); }
+
+.episode-body {
+  max-height: 0; overflow: hidden;
+  transition: max-height 0.4s ease;
+  border-top: 1px solid transparent;
+}
+.episode.open .episode-body {
+  max-height: none;
+  border-top-color: var(--border);
+}
+.episode-content { padding: 22px 26px 28px; }
+
+/* ========== TYPOGRAPHY IN EPISODES ========== */
+.episode-content h3 {
+  font-size: 1.05rem; font-weight: 700; color: var(--text-bright);
+  margin: 28px 0 10px; padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.episode-content h3:first-child { margin-top: 0; }
+
+.episode-content p { margin: 10px 0; }
+.episode-content ul, .episode-content ol {
+  margin: 10px 0 10px 20px;
+}
+.episode-content li { margin: 4px 0; }
+
+.episode-content strong { color: var(--text-bright); }
+.episode-content em { color: var(--orange); font-style: normal; }
+
+/* ========== CODE BLOCKS ========== */
+.code-block-wrapper {
+  margin: 14px 0; border-radius: var(--radius); overflow: hidden;
+  border: 1px solid var(--border);
+}
+.code-block-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 14px;
+  background: rgba(30, 34, 45, 0.8);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.72rem; color: var(--text-dim);
+}
+.code-block-header .filename { font-family: var(--mono); font-weight: 600; }
+.code-block-header .lang-badge {
+  padding: 1px 8px; border-radius: 4px;
+  background: var(--accent-glow); color: var(--accent); font-weight: 600;
+}
+pre.code-block {
+  background: var(--bg-code);
+  padding: 16px 18px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  line-height: 1.65;
+  color: var(--text);
+  margin: 0;
+}
+pre.code-block::-webkit-scrollbar { height: 6px; }
+pre.code-block::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* Syntax colors */
+.kw { color: var(--purple); }       /* keywords */
+.fn { color: var(--accent); }       /* function names */
+.st { color: var(--green); }        /* strings */
+.cm { color: #546178; font-style: italic; }  /* comments */
+.nu { color: var(--orange); }       /* numbers */
+.op { color: var(--red); }          /* operators/special */
+.ty { color: var(--cyan); }         /* types/classes */
+.dc { color: var(--yellow); }       /* decorators */
+
+/* ========== ASCII DIAGRAMS ========== */
+.diagram {
+  margin: 16px 0;
+  padding: 20px 24px;
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--text-dim);
+  overflow-x: auto;
+  white-space: pre;
+}
+.diagram .hl { color: var(--accent); font-weight: 700; }
+.diagram .hl2 { color: var(--green); font-weight: 700; }
+.diagram .hl3 { color: var(--orange); font-weight: 700; }
+.diagram .hl4 { color: var(--purple); font-weight: 700; }
+.diagram .hl5 { color: var(--red); font-weight: 700; }
+.diagram .dim { color: #3a3f52; }
+
+/* ========== CALLOUTS ========== */
+.callout {
+  margin: 16px 0; padding: 14px 18px;
+  border-radius: var(--radius);
+  border-left: 3px solid;
+  font-size: 0.88rem;
+}
+.callout.insight { background: rgba(108,158,255,0.06); border-color: var(--accent); }
+.callout.warning { background: rgba(240,160,80,0.06); border-color: var(--orange); }
+.callout.key     { background: rgba(93,228,168,0.06); border-color: var(--green); }
+.callout-label {
+  font-weight: 700; font-size: 0.75rem; text-transform: uppercase;
+  letter-spacing: 0.06em; margin-bottom: 6px;
+}
+.callout.insight .callout-label { color: var(--accent); }
+.callout.warning .callout-label { color: var(--orange); }
+.callout.key     .callout-label { color: var(--green); }
+
+/* ========== TABLE ========== */
+.styled-table {
+  width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 0.84rem;
+}
+.styled-table th {
+  text-align: left; padding: 8px 12px;
+  background: rgba(108,158,255,0.06);
+  border-bottom: 2px solid var(--border);
+  color: var(--text-bright); font-weight: 600;
+}
+.styled-table td {
+  padding: 7px 12px; border-bottom: 1px solid var(--border);
+}
+.styled-table code {
+  font-family: var(--mono); font-size: 0.8rem;
+  background: var(--bg-code); padding: 1px 5px; border-radius: 3px;
+}
+
+/* Inline code */
+.episode-content code, p code, li code, td code {
+  font-family: var(--mono); font-size: 0.84em;
+  background: var(--bg-code); padding: 1px 6px; border-radius: 4px;
+  color: var(--cyan);
+}
+
+/* ========== FORMULA ========== */
+.formula {
+  display: block; margin: 14px 0; padding: 12px 18px;
+  background: var(--bg-code); border-radius: var(--radius);
+  font-family: var(--mono); font-size: 0.88rem;
+  color: var(--text-bright); text-align: center;
+  border: 1px solid var(--border);
+  letter-spacing: 0.02em;
+}
+
+/* ========== PROGRESS TRACK ========== */
+.progress-bar {
+  position: fixed; top: var(--header-h); left: 0; right: 0; height: 2px;
+  z-index: 99; background: transparent;
+}
+.progress-bar-fill {
+  height: 100%; background: var(--accent); width: 0%; transition: width 0.15s;
+}
+
+/* ========== RESPONSIVE ========== */
+@media (max-width: 900px) {
+  .sidebar { transform: translateX(-100%); z-index: 95; }
+  .sidebar.open { transform: translateX(0); }
+  .main { margin-left: 0; padding: 28px 18px 100px; }
+  .header-burger { display: block; }
+  .hero h1 { font-size: 1.6rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- ========== HEADER ========== -->
+<header class="header">
+  <button class="header-burger" id="burgerBtn" aria-label="Toggle navigation">&#9776;</button>
+  <div class="header-title">
+    <span>&#9670;</span> Ultimate TTT &mdash; AlphaZero Course
+  </div>
+  <div class="header-right">14 episodes &middot; ~60 min read</div>
+</header>
+
+<!-- ========== PROGRESS BAR ========== -->
+<div class="progress-bar"><div class="progress-bar-fill" id="progressFill"></div></div>
+
+<!-- ========== SIDEBAR ========== -->
+<nav class="sidebar" id="sidebar">
+
+  <div class="nav-group">
+    <div class="nav-group-label">Overview</div>
+    <a class="nav-link" data-target="hero"><span class="ep-num">&nbsp;</span>Introduction</a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-label">The Game</div>
+    <a class="nav-link" data-target="ep1"><span class="ep-num">01</span> Game State as Tensor</a>
+    <a class="nav-link" data-target="ep2"><span class="ep-num">02</span> Rules &amp; Legal Moves</a>
+    <a class="nav-link" data-target="ep3"><span class="ep-num">03</span> Board Visualization</a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-label">Neural Network</div>
+    <a class="nav-link" data-target="ep4"><span class="ep-num">04</span> Residual Block</a>
+    <a class="nav-link" data-target="ep5"><span class="ep-num">05</span> Policy Head</a>
+    <a class="nav-link" data-target="ep6"><span class="ep-num">06</span> Value Head</a>
+    <a class="nav-link" data-target="ep7"><span class="ep-num">07</span> Full Network</a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-label">Tree Search</div>
+    <a class="nav-link" data-target="ep8"><span class="ep-num">08</span> MCTS Node &amp; PUCT</a>
+    <a class="nav-link" data-target="ep9"><span class="ep-num">09</span> MCTS Search Loop</a>
+    <a class="nav-link" data-target="ep10"><span class="ep-num">10</span> Policy Target Pruning</a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-label">Training Pipeline</div>
+    <a class="nav-link" data-target="ep11"><span class="ep-num">11</span> Self-Play</a>
+    <a class="nav-link" data-target="ep12"><span class="ep-num">12</span> Replay Buffer</a>
+    <a class="nav-link" data-target="ep13"><span class="ep-num">13</span> Multi-Task Loss</a>
+    <a class="nav-link" data-target="ep14"><span class="ep-num">14</span> Training Loop</a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-label">Evaluation</div>
+    <a class="nav-link" data-target="ep18"><span class="ep-num">18</span> Elo Rating</a>
+    <a class="nav-link" data-target="ep19"><span class="ep-num">19</span> Arena Evaluation</a>
+  </div>
+
+</nav>
+
+<!-- ========== MAIN ========== -->
+<div class="main" id="mainContent">
+
+<!-- HERO -->
+<section class="hero" id="hero">
+  <h1>Building an <span>AlphaZero</span><br>for Ultimate Tic-Tac-Toe</h1>
+  <p class="subtitle">A complete walkthrough of a self-learning game AI &mdash; from raw board state to neural network to tree search to training loop. No ML background needed.</p>
+  <div class="badge-row">
+    <span class="badge green">Python</span>
+    <span class="badge purple">PyTorch</span>
+    <span class="badge orange">AlphaZero + KataGo</span>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  EPISODE 1                                                     -->
+<!-- ============================================================ -->
+<div class="episode open" id="ep1">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">01</div>
+    <div class="ep-info">
+      <h2>Game State as a Tensor</h2>
+      <div class="ep-tagline">Encoding Ultimate TTT for a neural network &mdash; 7 channels on a 9x9 grid</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>What is Ultimate Tic-Tac-Toe?</h3>
+      <p>Ultimate TTT is a 9x9 board made up of nine 3x3 sub-boards arranged in a 3x3 meta-grid. When you play in a cell of a sub-board, you <strong>send your opponent to the corresponding sub-board</strong> for their next move. Win three sub-boards in a row to win the game.</p>
+
+      <div class="diagram"><span class="hl">The 9x9 Board Layout</span>
+
+Sub-boards are numbered 0-8:          Each sub-board has cells 0-8:
+
+  <span class="hl2">0</span> | <span class="hl2">1</span> | <span class="hl2">2</span>                       <span class="hl3">0</span> | <span class="hl3">1</span> | <span class="hl3">2</span>
+  ---------                       ---------
+  <span class="hl2">3</span> | <span class="hl2">4</span> | <span class="hl2">5</span>                       <span class="hl3">3</span> | <span class="hl3">4</span> | <span class="hl3">5</span>
+  ---------                       ---------
+  <span class="hl2">6</span> | <span class="hl2">7</span> | <span class="hl2">8</span>                       <span class="hl3">6</span> | <span class="hl3">7</span> | <span class="hl3">8</span>
+
+A move is a flat index 0-80:  <span class="hl4">move_idx = sub_board * 9 + cell</span>
+Example: sub_board=4, cell=0  -->  move_idx = 36
+
+Mapping to 9x9 spatial grid:
+  <span class="hl4">row = (sub_board // 3) * 3 + (cell // 3)</span>
+  <span class="hl4">col = (sub_board %  3) * 3 + (cell %  3)</span></div>
+
+      <h3>The GameState Dataclass</h3>
+      <p>The raw game state lives in pure Python &mdash; no tensors yet. This separation is deliberate: game logic stays clean and testable, and the neural network gets its own optimized representation.</p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span class="filename">01_game/board.py</span>
+          <span class="lang-badge">Python</span>
+        </div>
+        <pre class="code-block"><span class="dc">@dataclass</span>
+<span class="kw">class</span> <span class="ty">GameState</span>:
+    cells: np.ndarray              <span class="cm"># shape (9, 9) -- 0=empty, 1=player1, -1=player2</span>
+    sub_board_results: np.ndarray  <span class="cm"># shape (9,)   -- 0=ongoing, 1=p1 won, -1=p2 won, 2=draw</span>
+    active_sub_board: <span class="ty">int</span>          <span class="cm"># 0-8, or -1 meaning "free choice"</span>
+    current_player: <span class="ty">int</span>            <span class="cm"># 1 or -1</span>
+    move_count: <span class="ty">int</span>                <span class="cm"># total moves played</span>
+    is_terminal: <span class="ty">bool</span>
+    winner: <span class="ty">int</span> | <span class="ty">None</span>             <span class="cm"># 1, -1, 0 (draw), or None (ongoing)</span></pre>
+      </div>
+
+      <h3>The 7-Channel Tensor Encoding</h3>
+      <p>Neural networks cannot read Python objects. We convert the game state into a <strong>7-channel, 9x9 tensor</strong> &mdash; essentially seven 9x9 "images" stacked together, each capturing a different aspect of the position.</p>
+
+      <div class="callout key">
+        <div class="callout-label">Key Insight: Current-Player Perspective</div>
+        The tensor is <em>always</em> encoded from the current player's point of view. The network always sees itself as "player 1". This means the network only needs to learn one perspective &mdash; it halves the problem.
+      </div>
+
+      <div class="diagram"><span class="hl">7-Channel Tensor Encoding</span>  (shape: 7 x 9 x 9)
+
+<span class="hl2">Channel 0</span>: Current player's pieces     1.0 where I have a piece
+<span class="hl3">Channel 1</span>: Opponent's pieces            1.0 where opponent has a piece
+<span class="hl4">Channel 2</span>: Active sub-board mask        1.0 for playable cells (all 81 if free choice)
+<span class="hl2">Channel 3</span>: Sub-boards I have won        1.0 for all 9 cells of my won sub-boards
+<span class="hl3">Channel 4</span>: Sub-boards opponent won      1.0 for all 9 cells of their won sub-boards
+<span class="hl5">Channel 5</span>: Drawn sub-boards             1.0 for all 9 cells of drawn sub-boards
+<span class="hl4">Channel 6</span>: Turn indicator               all 0.0 if I'm player 1, all 1.0 if I'm player -1</div>
+
+      <p><strong>Why 7 channels?</strong> Each channel answers a yes/no question at every cell. The network learns which combinations of channels matter. For example, "my piece in an active sub-board near my won sub-boards" might be a strong pattern.</p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header">
+          <span class="filename">01_game/board.py</span>
+          <span class="lang-badge">Python</span>
+        </div>
+        <pre class="code-block"><span class="kw">def</span> <span class="fn">encode_state</span>(state: <span class="ty">GameState</span>) -> torch.Tensor:
+    tensor = torch.zeros(<span class="nu">7</span>, <span class="nu">9</span>, <span class="nu">9</span>, dtype=torch.float32)
+    cp = state.current_player  <span class="cm"># 1 or -1</span>
+
+    <span class="kw">for</span> sb <span class="kw">in</span> <span class="fn">range</span>(<span class="nu">9</span>):
+        row_block = sb // <span class="nu">3</span>
+        col_block = sb % <span class="nu">3</span>
+        <span class="kw">for</span> cell <span class="kw">in</span> <span class="fn">range</span>(<span class="nu">9</span>):
+            row = row_block * <span class="nu">3</span> + cell // <span class="nu">3</span>
+            col = col_block * <span class="nu">3</span> + cell % <span class="nu">3</span>
+            val = state.cells[sb, cell]
+
+            <span class="kw">if</span> val == cp:        <span class="cm"># Channel 0: my pieces</span>
+                tensor[<span class="nu">0</span>, row, col] = <span class="nu">1.0</span>
+            <span class="kw">elif</span> val == -cp:     <span class="cm"># Channel 1: opponent's pieces</span>
+                tensor[<span class="nu">1</span>, row, col] = <span class="nu">1.0</span>
+
+    <span class="cm"># Channel 2: active sub-board mask</span>
+    <span class="kw">if</span> state.active_sub_board == <span class="nu">-1</span>:
+        tensor[<span class="nu">2</span>, :, :] = <span class="nu">1.0</span>        <span class="cm"># free choice -- all cells active</span>
+    <span class="kw">else</span>:
+        <span class="cm"># only the forced sub-board is active</span>
+        sb = state.active_sub_board
+        <span class="cm">... # fill only those 9 cells</span>
+
+    <span class="cm"># Channel 6: turn indicator</span>
+    <span class="kw">if</span> cp == <span class="nu">-1</span>:
+        tensor[<span class="nu">6</span>, :, :] = <span class="nu">1.0</span>
+
+    <span class="kw">return</span> tensor  <span class="cm"># shape: (7, 9, 9)</span></pre>
+      </div>
+
+      <h3>Move Encoding / Decoding</h3>
+      <p>Moves are flat integers 0&ndash;80. This is the format the neural network outputs (a probability for each of 81 possible moves).</p>
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">01_game/board.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">def</span> <span class="fn">decode_move</span>(move_idx: <span class="ty">int</span>) -> <span class="ty">tuple</span>[<span class="ty">int</span>, <span class="ty">int</span>]:
+    <span class="kw">return</span> move_idx // <span class="nu">9</span>, move_idx % <span class="nu">9</span>      <span class="cm"># (sub_board_idx, cell_idx)</span>
+
+<span class="kw">def</span> <span class="fn">encode_move</span>(sub_board_idx: <span class="ty">int</span>, cell_idx: <span class="ty">int</span>) -> <span class="ty">int</span>:
+    <span class="kw">return</span> sub_board_idx * <span class="nu">9</span> + cell_idx        <span class="cm"># flat index 0-80</span></pre>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 2                                                     -->
+<!-- ============================================================ -->
+<div class="episode" id="ep2">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">02</div>
+    <div class="ep-info">
+      <h2>Game Rules &amp; Legal Moves</h2>
+      <div class="ep-tagline">Win detection, the directed-move mechanic, and immutable state transitions</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>Win Detection</h3>
+      <p>Both sub-boards and the meta-board are 3x3 grids. Winning means getting three in a row along any of the <strong>8 winning lines</strong>: 3 rows, 3 columns, and 2 diagonals.</p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">01_game/rules.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block">WIN_LINES = [
+    (<span class="nu">0</span>, <span class="nu">1</span>, <span class="nu">2</span>), (<span class="nu">3</span>, <span class="nu">4</span>, <span class="nu">5</span>), (<span class="nu">6</span>, <span class="nu">7</span>, <span class="nu">8</span>),  <span class="cm"># rows</span>
+    (<span class="nu">0</span>, <span class="nu">3</span>, <span class="nu">6</span>), (<span class="nu">1</span>, <span class="nu">4</span>, <span class="nu">7</span>), (<span class="nu">2</span>, <span class="nu">5</span>, <span class="nu">8</span>),  <span class="cm"># columns</span>
+    (<span class="nu">0</span>, <span class="nu">4</span>, <span class="nu">8</span>), (<span class="nu">2</span>, <span class="nu">4</span>, <span class="nu">6</span>),              <span class="cm"># diagonals</span>
+]
+
+<span class="kw">def</span> <span class="fn">check_sub_board_winner</span>(cells_flat: np.ndarray) -> <span class="ty">int</span>:
+    <span class="kw">for</span> a, b, c <span class="kw">in</span> WIN_LINES:
+        <span class="kw">if</span> cells_flat[a] != <span class="nu">0</span> <span class="kw">and</span> cells_flat[a] == cells_flat[b] == cells_flat[c]:
+            <span class="kw">return</span> <span class="fn">int</span>(cells_flat[a])  <span class="cm"># 1 or -1</span>
+    <span class="kw">if</span> np.all(cells_flat != <span class="nu">0</span>):
+        <span class="kw">return</span> <span class="nu">2</span>                    <span class="cm"># draw -- board is full</span>
+    <span class="kw">return</span> <span class="nu">0</span>                        <span class="cm"># ongoing</span></pre>
+      </div>
+
+      <h3>The Directed-Move Mechanic</h3>
+      <p>This is what makes Ultimate TTT strategically deep. When you place a piece in <code>cell_idx</code> of a sub-board, your opponent is <strong>forced to play in sub-board number <code>cell_idx</code></strong> on their turn. If that sub-board is already won or drawn, they get free choice.</p>
+
+      <div class="callout insight">
+        <div class="callout-label">Why This Matters for AI</div>
+        Every move does two things: (1) claims a cell, and (2) constrains your opponent's options. The AI must reason about both simultaneously. This is why a simple heuristic search falls short.
+      </div>
+
+      <h3>Legal Moves</h3>
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">01_game/rules.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">def</span> <span class="fn">get_legal_moves</span>(state: <span class="ty">GameState</span>) -> <span class="ty">list</span>[<span class="ty">int</span>]:
+    <span class="kw">if</span> state.is_terminal:
+        <span class="kw">return</span> []
+
+    <span class="kw">if</span> state.active_sub_board == <span class="nu">-1</span>:
+        <span class="cm"># Free choice -- any empty cell in any non-terminal sub-board</span>
+        <span class="kw">for</span> sb <span class="kw">in</span> <span class="fn">range</span>(<span class="nu">9</span>):
+            <span class="kw">if</span> state.sub_board_results[sb] != <span class="nu">0</span>: <span class="kw">continue</span>
+            <span class="kw">for</span> cell <span class="kw">in</span> <span class="fn">range</span>(<span class="nu">9</span>):
+                <span class="kw">if</span> state.cells[sb, cell] == <span class="nu">0</span>:
+                    moves.append(encode_move(sb, cell))
+    <span class="kw">else</span>:
+        <span class="cm"># Forced to play in the active sub-board</span>
+        sb = state.active_sub_board
+        <span class="kw">for</span> cell <span class="kw">in</span> <span class="fn">range</span>(<span class="nu">9</span>):
+            <span class="kw">if</span> state.cells[sb, cell] == <span class="nu">0</span>:
+                moves.append(encode_move(sb, cell))
+    <span class="kw">return</span> moves</pre>
+      </div>
+
+      <h3>Applying a Move</h3>
+      <p>Critically, <code>apply_move</code> <strong>never mutates the input state</strong>. It returns a brand-new <code>GameState</code>. This is essential for MCTS, which explores many hypothetical futures from the same position.</p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">01_game/rules.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">def</span> <span class="fn">apply_move</span>(state: <span class="ty">GameState</span>, move_idx: <span class="ty">int</span>) -> <span class="ty">GameState</span>:
+    <span class="cm"># 1. Validate the move</span>
+    <span class="cm"># 2. Place piece:        new_state.cells[sb, cell] = current_player</span>
+    <span class="cm"># 3. Check sub-board:    did this sub-board just get won/drawn?</span>
+    <span class="cm"># 4. Check meta-board:   did the whole game just end?</span>
+    <span class="cm"># 5. Set next active:    next_sb = cell_idx of the move played</span>
+    <span class="cm">#    If that sub-board is already decided -> free choice (-1)</span>
+    <span class="cm"># 6. Flip player:        new_state.current_player *= -1</span>
+    <span class="cm"># 7. Increment counter:  new_state.move_count += 1</span>
+    <span class="kw">return</span> new_state</pre>
+      </div>
+
+      <h3>Legal Move Mask</h3>
+      <p>The network outputs probabilities for all 81 moves, but most are illegal. We create a binary mask to zero out illegal moves before picking one.</p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">01_game/rules.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">def</span> <span class="fn">get_legal_move_mask</span>(state: <span class="ty">GameState</span>) -> torch.Tensor:
+    <span class="st">"""Shape (81,): 1.0 for legal, 0.0 for illegal."""</span>
+    mask = torch.zeros(<span class="nu">81</span>, dtype=torch.float32)
+    <span class="kw">for</span> m <span class="kw">in</span> get_legal_moves(state):
+        mask[m] = <span class="nu">1.0</span>
+    <span class="kw">return</span> mask</pre>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 3                                                     -->
+<!-- ============================================================ -->
+<div class="episode" id="ep3">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">03</div>
+    <div class="ep-info">
+      <h2>Board Visualization</h2>
+      <div class="ep-tagline">ASCII rendering, tensor channel inspection, and heatmap overlays</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>ASCII Board Rendering</h3>
+      <p>For debugging and understanding, we render the full 9x9 board with sub-board boundaries, piece symbols, and highlight the active (forced) sub-board with asterisks.</p>
+
+      <div class="diagram"><span class="hl">Sample Board Output</span>
+
+  Move 5 | Player O to move
+  Active sub-board: 3
+
+*. . .* | . . . |  . . .
+*. . .* | . X . |  . . .
+*. . .* | . . . |  . . .
+--------+--------+-------
+ X . .  | . O . |  . . .
+ . . .  | . . . |  . . .
+ . . .  | . . . |  . . .
+--------+--------+-------
+ . . .  | . . . |  . . .
+ . . .  | . . . |  . . .
+ . . .  | . . . |  . . .
+
+  Sub-board results:
+    . . .
+    . . .
+    . . .</div>
+
+      <p>The visualizer also provides <code>render_tensor_channels()</code> to inspect each of the 7 channels individually &mdash; invaluable for verifying the encoding is correct.</p>
+
+      <h3>Heatmap Visualization</h3>
+      <p>For explainability and debugging, any 81-dimensional vector (policy probabilities, visit counts, attributions) can be rendered as a 9x9 heatmap overlaid on the board. This is used by the MCTS visualizer and Grad-CAM modules later.</p>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 4                                                     -->
+<!-- ============================================================ -->
+<div class="episode" id="ep4">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">04</div>
+    <div class="ep-info">
+      <h2>The Residual Block</h2>
+      <div class="ep-tagline">Skip connections and KataGo's global pooling injection</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>What is a Residual Block?</h3>
+      <p>A residual block is the fundamental building unit of our network. It takes a feature map, processes it through two convolution layers, and then <strong>adds the original input back</strong> (the "skip connection"). This prevents the "vanishing gradient" problem that makes deep networks hard to train.</p>
+
+      <div class="callout insight">
+        <div class="callout-label">Intuition</div>
+        Without skip connections, a 20-layer network would have to learn the entire transformation from scratch. With them, each layer only needs to learn a small <em>residual</em> adjustment. It is much easier to learn "what to change" than "the complete answer."
+      </div>
+
+      <h3>KataGo's Global Pooling Injection</h3>
+      <p>Standard convolutions only look at local 3x3 patches. But in Ultimate TTT, sometimes a cell's value depends on the <em>global</em> state (e.g., "how many sub-boards have I won?"). KataGo's innovation: add a <strong>global pooling branch</strong> that squeezes the entire 9x9 feature map into a single vector, processes it through a small MLP, and broadcasts it back to every spatial position.</p>
+
+      <div class="diagram"><span class="hl">Residual Block Architecture</span>
+
+  Input: (B, C, 9, 9)
+      |
+      +---------------------------------------------+
+      |                                             |
+  <span class="hl2">Branch 1 (Local):</span>                        <span class="hl3">Branch 2 (Global):</span>
+  Conv(C,C,3x3) --> BN --> ReLU           GlobalAvgPool --> (B, C)
+  Conv(C,C,3x3) --> BN                    Linear(C, C/8) --> ReLU
+      |  (B, C, 9, 9)                     Linear(C/8, C)
+      |                                       |  (B, C)
+      |                                   Broadcast to (B, C, 9, 9)
+      |                                       |
+      +------------ <span class="hl4">ADD all three</span> ------------+
+      |
+    ReLU
+      |
+  Output: (B, C, 9, 9)   <span class="cm">&lt;-- same shape, richer features</span></div>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">02_network/residual_block.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">class</span> <span class="ty">ResidualBlock</span>(nn.Module):
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, channels, global_channels=<span class="kw">None</span>):
+        <span class="cm"># Branch 1: local convolutions</span>
+        self.conv1 = nn.Conv2d(channels, channels, <span class="nu">3</span>, padding=<span class="nu">1</span>)
+        self.conv2 = nn.Conv2d(channels, channels, <span class="nu">3</span>, padding=<span class="nu">1</span>)
+
+        <span class="cm"># Branch 2: global pooling (KataGo innovation)</span>
+        self.global_mlp = nn.Sequential(
+            nn.Linear(channels, channels // <span class="nu">8</span>),  <span class="cm"># bottleneck</span>
+            nn.ReLU(),
+            nn.Linear(channels // <span class="nu">8</span>, channels),
+        )
+
+    <span class="kw">def</span> <span class="fn">forward</span>(self, x):
+        identity = x                                <span class="cm"># (B, C, 9, 9)</span>
+        local  = self.bn2(self.conv2(F.relu(self.bn1(self.conv1(x)))))
+        pooled = x.mean(dim=[<span class="nu">2</span>, <span class="nu">3</span>])               <span class="cm"># (B, C)</span>
+        glob   = self.global_mlp(pooled)            <span class="cm"># (B, C)</span>
+        glob   = glob.unsqueeze(-<span class="nu">1</span>).unsqueeze(-<span class="nu">1</span>)  <span class="cm"># (B, C, 1, 1) broadcasts</span>
+        <span class="kw">return</span> F.relu(local + glob + identity)      <span class="cm"># (B, C, 9, 9)</span></pre>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 5                                                     -->
+<!-- ============================================================ -->
+<div class="episode" id="ep5">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">05</div>
+    <div class="ep-info">
+      <h2>The Policy Head</h2>
+      <div class="ep-tagline">Converting features to move probabilities, plus an auxiliary opponent head</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>What Does the Policy Head Do?</h3>
+      <p>The policy head takes the trunk's spatial features (B, C, 9, 9) and produces a <strong>probability distribution over all 81 possible moves</strong>. This tells MCTS which moves are worth exploring.</p>
+
+      <h3>Dual Policy: Main + Opponent</h3>
+      <p>A KataGo improvement: we train <em>two</em> policy heads. The main head predicts the current player's best moves. The auxiliary head predicts what the <em>opponent</em> would play. This forces the network to model both perspectives &mdash; a strong regularizer during training.</p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">02_network/policy_head.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">class</span> <span class="ty">PolicyHead</span>(nn.Module):
+    <span class="cm"># Each head: Conv(C,2,1x1) -> BN -> ReLU -> Flatten -> Linear(162, 81)</span>
+
+    <span class="kw">def</span> <span class="fn">forward</span>(self, x):                    <span class="cm"># x: (B, C, 9, 9)</span>
+        p = F.relu(self.main_bn(self.main_conv(x)))  <span class="cm"># (B, 2, 9, 9)</span>
+        p = p.flatten(start_dim=<span class="nu">1</span>)                   <span class="cm"># (B, 162)</span>
+        policy_logits = self.main_fc(p)               <span class="cm"># (B, 81)</span>
+
+        o = F.relu(self.opp_bn(self.opp_conv(x)))    <span class="cm"># opponent head</span>
+        opp_logits = self.opp_fc(o.flatten(<span class="nu">1</span>))        <span class="cm"># (B, 81)</span>
+
+        <span class="kw">return</span> policy_logits, opp_logits          <span class="cm"># raw logits!</span></pre>
+      </div>
+
+      <h3>Legal Move Masking</h3>
+      <p>The network outputs raw scores (logits) for all 81 moves, including illegal ones. Before using these as probabilities, we must mask out illegal moves.</p>
+
+      <div class="callout warning">
+        <div class="callout-label">Critical Implementation Detail</div>
+        Set illegal logits to <code>-infinity</code>, <em>then</em> apply softmax. This is mathematically correct: <code>softmax(-inf) = 0</code>. Do NOT multiply logits by a mask &mdash; that causes numerical instability.
+      </div>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">02_network/policy_head.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">def</span> <span class="fn">apply_legal_mask</span>(logits, legal_mask):
+    <span class="cm"># Set illegal moves to -inf so softmax gives them 0</span>
+    masked = logits.masked_fill(~legal_mask.bool(), <span class="fn">float</span>(<span class="st">'-inf'</span>))
+    <span class="kw">return</span> F.softmax(masked, dim=-<span class="nu">1</span>)  <span class="cm"># probabilities, sums to 1.0</span></pre>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 6                                                     -->
+<!-- ============================================================ -->
+<div class="episode" id="ep6">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">06</div>
+    <div class="ep-info">
+      <h2>The Value Head</h2>
+      <div class="ep-tagline">Multi-output evaluation: win probability, score margin, and sub-board ownership</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>Why Multiple Outputs?</h3>
+      <p>AlphaZero's value head predicts just one thing: "who is winning?" (a number from -1 to +1). KataGo showed that adding <strong>auxiliary prediction targets</strong> gives the network a richer training signal. Every game position teaches the network three things simultaneously:</p>
+
+      <table class="styled-table">
+        <thead><tr><th>Output</th><th>Shape</th><th>Range</th><th>What it predicts</th></tr></thead>
+        <tbody>
+          <tr><td><strong>win_value</strong></td><td>(B, 1)</td><td>[-1, 1]</td><td>Probability current player wins (main output for MCTS)</td></tr>
+          <tr><td><strong>score_margin</strong></td><td>(B, 1)</td><td>[-1, 1]</td><td>Predicted sub-board differential (auxiliary)</td></tr>
+          <tr><td><strong>ownership</strong></td><td>(B, 9)</td><td>[0, 1]</td><td>Per-sub-board win probability (auxiliary)</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout key">
+        <div class="callout-label">Why Auxiliary Targets Matter</div>
+        With win/loss alone, each training example teaches just 1 bit of information. With ownership, it teaches 9 bits. With score margin, it teaches a continuous signal. The auxiliary targets force the network to understand <em>board control</em>, not just final outcomes.
+      </div>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">02_network/value_head.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">class</span> <span class="ty">ValueHead</span>(nn.Module):
+    <span class="kw">def</span> <span class="fn">forward</span>(self, x):                         <span class="cm"># x: (B, C, 9, 9)</span>
+        v = F.relu(self.bn(self.conv(x)))          <span class="cm"># (B, 1, 9, 9)</span>
+        shared = F.relu(self.fc(v.flatten(<span class="nu">1</span>)))     <span class="cm"># (B, 64)</span>
+
+        win_value    = torch.tanh(self.win_head(shared))      <span class="cm"># (B, 1) in [-1, 1]</span>
+        score_margin = torch.tanh(self.score_head(shared))    <span class="cm"># (B, 1) in [-1, 1]</span>
+        ownership    = torch.sigmoid(self.own_head(shared))   <span class="cm"># (B, 9) in [0, 1]</span>
+        <span class="kw">return</span> win_value, score_margin, ownership</pre>
+      </div>
+
+      <p><strong>Why tanh?</strong> Because win value must be bounded to [-1, +1]. tanh naturally maps any real number to that range. <strong>Why sigmoid for ownership?</strong> Because each sub-board is independently won or lost &mdash; it is a per-element binary probability.</p>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 7                                                     -->
+<!-- ============================================================ -->
+<div class="episode" id="ep7">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">07</div>
+    <div class="ep-info">
+      <h2>The Full Network</h2>
+      <div class="ep-tagline">Assembling trunk, policy head, and value head into a single model</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>Architecture Overview</h3>
+      <p>The full network chains together everything we have built. One forward pass transforms a 7-channel board tensor into move probabilities <em>and</em> position evaluation simultaneously.</p>
+
+      <div class="diagram"><span class="hl">Full Network Architecture</span>
+
+  <span class="hl2">Input</span>: (B, <span class="hl3">7</span>, 9, 9)     <span class="cm">&lt;-- 7-channel board encoding</span>
+      |
+  <span class="hl2">Input Conv</span>: Conv(7, 128, 3x3) --> BN --> ReLU
+      |
+      v
+  (B, <span class="hl3">128</span>, 9, 9)
+      |
+  <span class="hl2">Residual Trunk</span>: 8 x ResidualBlock(128)   <span class="cm">&lt;-- each with global pooling</span>
+      |
+      v
+  (B, <span class="hl3">128</span>, 9, 9)       <span class="cm">&lt;-- shared representation</span>
+      |
+      +-----------------+-----------------+
+      |                                   |
+  <span class="hl4">Policy Head</span>                       <span class="hl5">Value Head</span>
+  Conv(128,2,1) -> FC(162,81)      Conv(128,1,1) -> FC(81,64)
+      |                                   |
+      v                              +----+----+----+
+  <span class="hl4">policy_logits</span>  (B, 81)         <span class="hl5">win</span>   <span class="hl5">score</span>  <span class="hl5">own</span>
+  <span class="hl4">opp_logits</span>     (B, 81)        (B,1) (B,1) (B,9)
+
+
+  <span class="cm">Total parameters: ~1.3M (128 channels, 8 blocks)</span>
+  <span class="cm">Compared to AlphaZero Chess: ~40M (256 channels, 20 blocks)</span></div>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">02_network/network.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">class</span> <span class="ty">UltimateTTTNetwork</span>(nn.Module):
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, channels=<span class="nu">128</span>, num_blocks=<span class="nu">8</span>):
+        self.input_conv = nn.Conv2d(<span class="nu">7</span>, channels, <span class="nu">3</span>, padding=<span class="nu">1</span>)
+        self.trunk = nn.Sequential(
+            *[ResidualBlock(channels) <span class="kw">for</span> _ <span class="kw">in</span> <span class="fn">range</span>(num_blocks)]
+        )
+        self.policy_head = PolicyHead(channels)
+        self.value_head  = ValueHead(channels)
+
+    <span class="kw">def</span> <span class="fn">forward</span>(self, x):                    <span class="cm"># (B, 7, 9, 9)</span>
+        h = F.relu(self.input_bn(self.input_conv(x)))  <span class="cm"># (B, C, 9, 9)</span>
+        h = self.trunk(h)                               <span class="cm"># (B, C, 9, 9)</span>
+        policy, opp_policy = self.policy_head(h)
+        value_out = self.value_head(h)
+        <span class="kw">return</span> NetworkOutput(policy, opp_policy, ...)</pre>
+      </div>
+
+      <h3>The predict() Method</h3>
+      <p>For MCTS (single-state inference), the <code>predict()</code> convenience method handles encoding the game state, adding a batch dimension, running the forward pass with no gradient tracking, and removing the batch dimension from outputs.</p>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 8                                                     -->
+<!-- ============================================================ -->
+<div class="episode" id="ep8">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">08</div>
+    <div class="ep-info">
+      <h2>MCTS Node &amp; the PUCT Formula</h2>
+      <div class="ep-tagline">Exploration vs exploitation &mdash; how to decide which moves to think about</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>What is MCTS?</h3>
+      <p>Monte Carlo Tree Search (MCTS) builds a search tree by repeatedly simulating games. Each node represents a board position. The neural network guides the search, and the search makes the network's moves stronger than the network alone.</p>
+
+      <h3>The MCTS Node</h3>
+      <p>Each node stores statistics about how often each action (move) was explored and what value was observed:</p>
+
+      <table class="styled-table">
+        <thead><tr><th>Statistic</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>N[a]</code></td><td>Visit count &mdash; how many times we explored action <em>a</em></td></tr>
+          <tr><td><code>W[a]</code></td><td>Total value accumulated from action <em>a</em></td></tr>
+          <tr><td><code>Q[a]</code></td><td>Mean value = W[a] / N[a] (how good is this move on average)</td></tr>
+          <tr><td><code>P[a]</code></td><td>Prior probability from neural network (initial belief)</td></tr>
+        </tbody>
+      </table>
+
+      <h3>The PUCT Formula</h3>
+      <p>The core of AlphaZero-style MCTS. It balances <strong>exploitation</strong> (pick moves that looked good) with <strong>exploration</strong> (try moves the network thinks are promising but under-explored).</p>
+
+      <div class="formula">PUCT(s, a) = Q(s, a)  +  c_puct &middot; P(s, a) &middot; sqrt(N(s)) / (1 + N(s, a))</div>
+
+      <p><strong>Q(s, a)</strong>: average value so far. Favors moves that scored well.
+      <br><strong>P(s, a)</strong>: neural network's prior. Starts high for moves the network likes.
+      <br><strong>sqrt(N(s)) / (1 + N(s, a))</strong>: exploration bonus. Large when a move has few visits relative to its siblings. Shrinks as we visit more.</p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">03_mcts/node.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">def</span> <span class="fn">puct_score</span>(self, move_idx, c_puct=<span class="nu">1.0</span>):
+    q_value  = self.Q.get(move_idx, <span class="nu">0.0</span>)
+    prior    = self.P.get(move_idx, <span class="nu">0.0</span>)
+    n_action = self.N.get(move_idx, <span class="nu">0</span>)
+    n_parent = self.visit_count
+
+    exploration = c_puct * prior * math.sqrt(n_parent) / (<span class="nu">1</span> + n_action)
+    <span class="kw">return</span> q_value + exploration</pre>
+      </div>
+
+      <h3>Backpropagation with Negation</h3>
+      <p>After evaluating a leaf node, the value propagates back up the tree. <strong>Critically, the value is negated at each level</strong> because players alternate &mdash; what is good for me is bad for my opponent.</p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">03_mcts/node.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">def</span> <span class="fn">backup</span>(self, value):
+    self.visit_count += <span class="nu">1</span>
+    <span class="kw">if</span> self.parent <span class="kw">is not</span> <span class="kw">None</span>:
+        move = self.move_from_parent
+        self.parent.N[move] += <span class="nu">1</span>
+        self.parent.W[move] += value
+        self.parent.Q[move]  = self.parent.W[move] / self.parent.N[move]
+        self.parent.backup(<span class="op">-</span>value)  <span class="cm"># negate for opponent's perspective!</span></pre>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 9                                                     -->
+<!-- ============================================================ -->
+<div class="episode" id="ep9">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">09</div>
+    <div class="ep-info">
+      <h2>The MCTS Search Loop</h2>
+      <div class="ep-tagline">The four phases: Select, Expand, Evaluate, Backup &mdash; plus Dirichlet noise</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>The Four Phases</h3>
+
+      <div class="diagram"><span class="hl">MCTS: One Simulation (repeated 800 times)</span>
+
+  <span class="hl2">Phase 1: SELECT</span>                    <span class="hl3">Phase 2: EXPAND</span>
+  Start at root.                     At the leaf node:
+  Follow highest PUCT score          Call neural network to get
+  down the tree until you            (policy, value). Create child
+  reach a leaf node.                 nodes for all legal moves.
+
+      ROOT                                LEAF
+       / \                                / | \
+      /   \    <span class="cm">follow</span>                   /  |  \
+     *     o   <span class="cm">PUCT</span>              child child child
+    / \        <span class="cm">scores</span>            with prior probs
+   *   o                          from network
+   |
+  <span class="hl4">LEAF</span>
+
+  <span class="hl4">Phase 3: EVALUATE</span>                   <span class="hl5">Phase 4: BACKUP</span>
+  Use the network's value            Propagate value up through
+  estimate. NO random                ancestors, negating at each
+  rollouts (AlphaZero style).        level (my gain = your loss).
+
+  value = net.predict(state)         leaf.backup(value)
+         .win_value                       |    negate
+                                     parent(+v) -> grandparent(-v) -> ...</div>
+
+      <h3>Dirichlet Noise at Root</h3>
+      <p>To ensure the AI explores diverse openings during self-play, we add random noise to the root node's prior probabilities:</p>
+      <div class="formula">P_noisy(a) = (1 - epsilon) &middot; P(a) + epsilon &middot; Dir(alpha)</div>
+      <p><code>alpha = 0.3</code> (similar to chess), <code>epsilon = 0.25</code>. This noise is <em>only</em> applied at the root of the tree, and <em>only</em> during self-play (not during arena evaluation).</p>
+
+      <h3>Temperature-Controlled Move Selection</h3>
+      <p>After all simulations, we choose a move based on visit counts:</p>
+      <div class="formula">pi(a) = N(a)^(1/T) / SUM N(a')^(1/T)</div>
+      <p><strong>T = 1.0</strong> (early game): sample proportionally &mdash; encourages diverse opening play.
+      <br><strong>T = 0.0</strong> (late game): always pick the most-visited move &mdash; play the best move.</p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">03_mcts/search.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">def</span> <span class="fn">run_mcts</span>(root_state, network, num_simulations=<span class="nu">800</span>, ...):
+    root = MCTSNode(state=root_state)
+
+    <span class="cm"># Expand root with Dirichlet noise</span>
+    probs = network.predict(root_state).policy_logits
+    probs = apply_legal_mask(probs, legal_mask)
+    probs = (<span class="nu">1</span> - epsilon) * probs + epsilon * dirichlet_noise
+    root.expand(probs, legal_moves)
+
+    <span class="cm"># Run simulations</span>
+    <span class="kw">for</span> _ <span class="kw">in</span> <span class="fn">range</span>(num_simulations):
+        node  = _select(root, c_puct)          <span class="cm"># Phase 1</span>
+        value = _expand_and_evaluate(node, net) <span class="cm"># Phase 2+3</span>
+        _backup(node, value)                    <span class="cm"># Phase 4</span>
+
+    <span class="kw">return</span> root  <span class="cm"># visit counts encode the search result</span></pre>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 10                                                    -->
+<!-- ============================================================ -->
+<div class="episode" id="ep10">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">10</div>
+    <div class="ep-info">
+      <h2>Policy Target Pruning</h2>
+      <div class="ep-tagline">KataGo's insight: MCTS visits are optimized for search, not for training</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>The Problem</h3>
+      <p>During MCTS, we deliberately add noise and use temperature > 0. This means some moves get visited just for exploration &mdash; not because they are good. If we train the network to predict these noisy visit counts as-is, we are <strong>training on noise</strong>.</p>
+
+      <h3>The Solution: Prune Low-Visit Moves</h3>
+      <ol>
+        <li>Convert visit counts to probabilities: <code>pi(a) = N(a) / sum(N)</code></li>
+        <li>Remove moves below a threshold (e.g., moves visited only once out of 800)</li>
+        <li>Renormalize remaining probabilities to sum to 1.0</li>
+      </ol>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">03_mcts/policy_target.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">def</span> <span class="fn">compute_policy_target</span>(visit_counts, num_legal_moves, pruning_threshold=<span class="nu">0.0</span>):
+    target = torch.zeros(<span class="nu">81</span>)
+    total_visits = <span class="fn">sum</span>(visit_counts.values())
+
+    <span class="kw">for</span> move, count <span class="kw">in</span> visit_counts.items():
+        prob = count / total_visits
+        <span class="kw">if</span> prob >= pruning_threshold:  <span class="cm"># drop noisy single-visit moves</span>
+            target[move] = prob
+
+    <span class="kw">return</span> target / target.sum()  <span class="cm"># renormalize to sum to 1.0</span></pre>
+      </div>
+
+      <h3>Forced Playouts</h3>
+      <p>A complementary technique: before running MCTS, force at least <em>k</em> visits to every legal move. This prevents the search from ignoring moves the network is currently blind to.</p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">03_mcts/policy_target.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">def</span> <span class="fn">add_forced_playouts</span>(visit_counts, legal_moves, forced_playout_k=<span class="nu">2</span>):
+    <span class="cm">"""Ensure every legal move gets at least k visits."""</span>
+    <span class="kw">for</span> move <span class="kw">in</span> legal_moves:
+        <span class="kw">if</span> visit_counts.get(move, <span class="nu">0</span>) < forced_playout_k:
+            visit_counts[move] = forced_playout_k
+    <span class="kw">return</span> visit_counts</pre>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 11                                                    -->
+<!-- ============================================================ -->
+<div class="episode" id="ep11">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">11</div>
+    <div class="ep-info">
+      <h2>Self-Play Data Generation</h2>
+      <div class="ep-tagline">The AI plays itself to create training data &mdash; no human games needed</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>The Self-Play Loop</h3>
+      <p>This is the key innovation of AlphaZero: the AI generates its own training data by playing against itself. The current network is used for both sides. Each move produces one training example.</p>
+
+      <div class="diagram"><span class="hl">Self-Play: One Complete Game</span>
+
+  state = initial_state()
+  records = []
+
+  <span class="hl2">while</span> not state.is_terminal:
+      |
+      +-- Run MCTS (800 simulations) using current network
+      |       |
+      |       +-- Get visit counts from root node
+      |       +-- Compute pruned policy target
+      |
+      +-- Record: {state_tensor, policy_target, legal_mask, player}
+      |
+      +-- Select move (temp=1.0 for first 30 moves, then temp=0.0)
+      |
+      +-- state = apply_move(state, chosen_move)
+      |
+  <span class="hl3">end while</span>
+
+  <span class="hl4">After game ends</span>: go back and fill in value/score/ownership targets
+  for every recorded move, using the actual game outcome.</div>
+
+      <h3>What Data Do We Collect?</h3>
+
+      <table class="styled-table">
+        <thead><tr><th>Field</th><th>Shape</th><th>When Set</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>state_tensor</code></td><td>(7, 9, 9)</td><td>During game</td><td>Network input</td></tr>
+          <tr><td><code>policy_target</code></td><td>(81,)</td><td>During game</td><td>MCTS visit distribution (pruned)</td></tr>
+          <tr><td><code>opp_policy_target</code></td><td>(81,)</td><td>During game</td><td>Next move's policy (opponent prediction target)</td></tr>
+          <tr><td><code>legal_mask</code></td><td>(81,)</td><td>During game</td><td>Which moves were legal</td></tr>
+          <tr><td><code>value_target</code></td><td>scalar</td><td>After game</td><td>+1 win, -1 loss, 0 draw</td></tr>
+          <tr><td><code>score_target</code></td><td>scalar</td><td>After game</td><td>Normalized sub-board differential</td></tr>
+          <tr><td><code>ownership_target</code></td><td>(9,)</td><td>After game</td><td>Did current player win each sub-board?</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout insight">
+        <div class="callout-label">Temperature Schedule</div>
+        <strong>First 30 moves</strong>: temperature = 1.0 (sample proportionally from visit counts). This creates diverse training positions. <strong>After move 30</strong>: temperature = 0.0 (always pick best move). This ensures games reach natural conclusions.
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 12                                                    -->
+<!-- ============================================================ -->
+<div class="episode" id="ep12">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">12</div>
+    <div class="ep-info">
+      <h2>The Replay Buffer</h2>
+      <div class="ep-tagline">Stable training with a circular buffer of past experience</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>Why Not Just Train on the Latest Games?</h3>
+      <p>If we only train on the most recent self-play games, the network quickly overfits to its own current style and "forgets" what it learned earlier. This is called <strong>catastrophic forgetting</strong>. The replay buffer solves this by mixing recent positions with older ones.</p>
+
+      <h3>How It Works</h3>
+      <p>The replay buffer is a simple circular (ring) buffer that stores individual move records. When full, the oldest positions are overwritten.</p>
+
+      <div class="diagram"><span class="hl">Circular Buffer (capacity = 500,000 positions)</span>
+
+  <span class="dim">[old] [old] [old]</span> <span class="hl2">[new] [new] [new]</span> <span class="hl3">[newest]</span> <span class="dim">[old] [old] ...</span>
+                                            <span class="hl3">^</span>
+                                       write pointer
+
+  When buffer is full, write pointer wraps around,
+  overwriting the oldest positions first.
+
+  <span class="hl4">Sampling</span>: random.sample(buffer, batch_size=256)
+  Each batch is i.i.d. -- a random mix of positions
+  from different games and different iterations.</div>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">04_training/replay_buffer.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">class</span> <span class="ty">ReplayBuffer</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, capacity=<span class="nu">500_000</span>):
+        self._buffer = []
+        self._position = <span class="nu">0</span>
+
+    <span class="kw">def</span> <span class="fn">add_game</span>(self, game_record):
+        <span class="kw">for</span> move_record <span class="kw">in</span> game_record.moves:
+            <span class="kw">if</span> <span class="fn">len</span>(self._buffer) < self.capacity:
+                self._buffer.append(move_record)
+            <span class="kw">else</span>:
+                self._buffer[self._position] = move_record  <span class="cm"># overwrite oldest</span>
+            self._position = (self._position + <span class="nu">1</span>) % self.capacity
+
+    <span class="kw">def</span> <span class="fn">sample</span>(self, batch_size) -> <span class="ty">TrainingBatch</span>:
+        samples = random.sample(self._buffer, batch_size)
+        <span class="kw">return</span> TrainingBatch(
+            state_tensors=torch.stack([s.state_tensor <span class="kw">for</span> s <span class="kw">in</span> samples]),
+            policy_targets=torch.stack([s.policy_target <span class="kw">for</span> s <span class="kw">in</span> samples]),
+            ...
+        )</pre>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 13                                                    -->
+<!-- ============================================================ -->
+<div class="episode" id="ep13">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">13</div>
+    <div class="ep-info">
+      <h2>The Multi-Task Loss Function</h2>
+      <div class="ep-tagline">Teaching the network five things at once &mdash; and why each one matters</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>The Complete Loss</h3>
+      <p>The total loss is a weighted sum of five components. Each pushes the network to learn a different aspect of the game:</p>
+
+      <div class="formula">L_total = L_policy + 1.0 * L_value + 0.5 * L_score + 0.5 * L_ownership + 0.15 * L_opp_policy</div>
+
+      <table class="styled-table">
+        <thead><tr><th>Component</th><th>Loss Type</th><th>Weight</th><th>What It Teaches</th></tr></thead>
+        <tbody>
+          <tr><td><strong>L_policy</strong></td><td>Cross-entropy</td><td>1.0</td><td>Match the MCTS search distribution (which moves to play)</td></tr>
+          <tr><td><strong>L_value</strong></td><td>MSE</td><td>1.0</td><td>Predict game outcome (who will win)</td></tr>
+          <tr><td><strong>L_score</strong></td><td>MSE</td><td>0.5</td><td>Predict sub-board margin (how much am I winning by)</td></tr>
+          <tr><td><strong>L_ownership</strong></td><td>Binary CE</td><td>0.5</td><td>Predict which sub-boards I will win (board control)</td></tr>
+          <tr><td><strong>L_opp_policy</strong></td><td>Cross-entropy</td><td>0.15</td><td>Predict opponent's next move (model opponent's strategy)</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Policy Loss: Cross-Entropy</h3>
+      <p>The policy target (from MCTS) is a probability distribution. The network outputs logits. We compute cross-entropy after masking illegal moves:</p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">04_training/loss.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">def</span> <span class="fn">policy_loss</span>(logits, targets, legal_masks):
+    <span class="cm"># Mask illegal moves to -inf, then compute cross-entropy</span>
+    masked_logits = logits.masked_fill(~legal_masks.bool(), <span class="fn">float</span>(<span class="st">'-inf'</span>))
+    log_probs = F.log_softmax(masked_logits, dim=-<span class="nu">1</span>)
+    loss = -(targets * log_probs).sum(dim=-<span class="nu">1</span>)  <span class="cm"># per-sample CE</span>
+    <span class="kw">return</span> loss.mean()</pre>
+      </div>
+
+      <h3>Value Loss: MSE</h3>
+      <p>Mean Squared Error because value is continuous in [-1, 1]. At training start, this is around 0.5-1.0 (network is guessing). A well-trained network gets this below 0.2.</p>
+
+      <h3>Training Diagnostics</h3>
+      <table class="styled-table">
+        <thead><tr><th>Loss</th><th>At Start</th><th>Healthy Progress</th><th>Red Flag</th></tr></thead>
+        <tbody>
+          <tr><td>L_policy</td><td>~4.4 (log 81)</td><td>Steady decrease</td><td>Plateau before iter 50</td></tr>
+          <tr><td>L_value</td><td>~0.5-1.0</td><td>Slow, noisy decrease</td><td>Wild oscillation</td></tr>
+          <tr><td>L_score</td><td>~0.3-0.5</td><td>Correlated with L_value</td><td>Opposite to L_value</td></tr>
+          <tr><td>L_ownership</td><td>~0.6-0.7</td><td>Fast early drop</td><td>Not moving at all</td></tr>
+          <tr><td>L_opp_policy</td><td>~4.4</td><td>Tracks L_policy</td><td>Diverging from L_policy</td></tr>
+        </tbody>
+      </table>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 14                                                    -->
+<!-- ============================================================ -->
+<div class="episode" id="ep14">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">14</div>
+    <div class="ep-info">
+      <h2>The Training Loop</h2>
+      <div class="ep-tagline">Putting it all together: self-play, gradient descent, and evaluation in a loop</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>The AlphaZero Training Cycle</h3>
+      <p>Each iteration has three phases: generate data, train on data, and (periodically) evaluate the new network against the old one.</p>
+
+      <div class="diagram"><span class="hl">Training Loop: One Iteration (~1-2 minutes)</span>
+
+  <span class="hl2">Phase 1: SELF-PLAY</span>  (network in eval mode, CPU)
+  |  Play 25 games against itself using MCTS
+  |  Each game ~40-60 moves --> ~1000-1500 new positions
+  |  Add all positions to the replay buffer
+  |
+  <span class="hl3">Phase 2: TRAIN</span>  (network in train mode, GPU/MPS)
+  |  Sample 50 random batches (B=128) from replay buffer
+  |  For each batch:
+  |      output = network(batch.state_tensors)
+  |      loss = compute_total_loss(output, batch)
+  |      loss.backward()
+  |      clip_gradients(max_norm=1.0)
+  |      optimizer.step()
+  |
+  <span class="hl4">Phase 3: EVALUATE</span>  (every 10 iterations)
+  |  Arena: new network vs. best network, 20 games
+  |  If win_rate > 55%: replace best network, save checkpoint
+  |
+  <span class="hl5">Repeat forever until Ctrl+C</span></div>
+
+      <h3>Key Hyperparameters</h3>
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">04_training/trainer.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="dc">@dataclass</span>
+<span class="kw">class</span> <span class="ty">TrainingConfig</span>:
+    <span class="cm"># Self-play</span>
+    games_per_iteration   = <span class="nu">100</span>     <span class="cm"># games per cycle (25 for fast iteration)</span>
+    num_simulations       = <span class="nu">800</span>     <span class="cm"># MCTS sims per move (50 for testing)</span>
+    temperature_threshold = <span class="nu">30</span>      <span class="cm"># switch to greedy after move 30</span>
+
+    <span class="cm"># Training</span>
+    batch_size            = <span class="nu">256</span>     <span class="cm"># positions per gradient step</span>
+    batches_per_iteration = <span class="nu">100</span>     <span class="cm"># gradient steps per cycle</span>
+    learning_rate         = <span class="nu">0.001</span>   <span class="cm"># Adam optimizer</span>
+    weight_decay          = <span class="nu">1e-4</span>    <span class="cm"># L2 regularization</span>
+    grad_clip_norm        = <span class="nu">1.0</span>     <span class="cm"># prevent exploding gradients</span>
+
+    <span class="cm"># Evaluation</span>
+    arena_every_n         = <span class="nu">10</span>      <span class="cm"># arena every N iterations</span>
+    win_rate_threshold    = <span class="nu">0.55</span>    <span class="cm"># 55% to replace best network</span>
+
+    <span class="cm"># Network</span>
+    channels              = <span class="nu">128</span>     <span class="cm"># feature channels (64 for fast iteration)</span>
+    num_blocks            = <span class="nu">8</span>       <span class="cm"># residual blocks (4 for fast iteration)</span></pre>
+      </div>
+
+      <h3>The Training Step</h3>
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">04_training/trainer.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">def</span> <span class="fn">train_step</span>(network, optimizer, batch, config, device):
+    states = batch.state_tensors.to(device)     <span class="cm"># (B, 7, 9, 9)</span>
+
+    output = network(states)                     <span class="cm"># forward pass</span>
+    breakdown = compute_total_loss(output, batch) <span class="cm"># all 5 losses</span>
+
+    optimizer.zero_grad()
+    breakdown.total.backward()                   <span class="cm"># compute gradients</span>
+    torch.nn.utils.clip_grad_norm_(              <span class="cm"># safety: prevent explosion</span>
+        network.parameters(), config.grad_clip_norm
+    )
+    optimizer.step()                             <span class="cm"># update weights</span>
+
+    <span class="kw">return</span> breakdown</pre>
+      </div>
+
+      <h3>Checkpointing</h3>
+      <p>The trainer saves checkpoints after each arena evaluation where the new network is better. Each checkpoint stores the network weights, optimizer state, iteration number, and Elo rating. Training can be resumed from any checkpoint.</p>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 18                                                    -->
+<!-- ============================================================ -->
+<div class="episode" id="ep18">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">18</div>
+    <div class="ep-info">
+      <h2>The Elo Rating System</h2>
+      <div class="ep-tagline">Mathematically measuring AI playing strength across training</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>How Elo Works</h3>
+      <p>Elo is a numerical rating that predicts the probability of one player beating another. A 200-point Elo advantage means you win about 75% of the time.</p>
+
+      <div class="formula">Expected score:  E_A = 1 / (1 + 10^((R_B - R_A) / 400))</div>
+      <div class="formula">Rating update:  R_new = R_old + K * (actual - expected)</div>
+
+      <p><strong>K-factor</strong> (default: 32) controls how fast ratings change. Higher K = more volatile, faster convergence. Lower K = more stable, slower to reflect improvement.</p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">06_evaluation/elo.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">def</span> <span class="fn">expected_score</span>(rating_a, rating_b):
+    <span class="kw">return</span> <span class="nu">1.0</span> / (<span class="nu">1.0</span> + <span class="nu">10.0</span> ** ((rating_b - rating_a) / <span class="nu">400.0</span>))
+
+<span class="kw">def</span> <span class="fn">update_elo</span>(rating, opponent_rating, actual_score, k_factor=<span class="nu">32.0</span>):
+    expected = expected_score(rating, opponent_rating)
+    <span class="kw">return</span> rating + k_factor * (actual_score - expected)</pre>
+      </div>
+
+      <h3>Elo Tracker</h3>
+      <p>The <code>EloTracker</code> class maintains Elo ratings for multiple network checkpoints across training. It records a full history of (game_number, elo_rating) tuples for plotting the AI's improvement over time.</p>
+
+      <div class="callout key">
+        <div class="callout-label">What Healthy Elo Progression Looks Like</div>
+        First 10 iterations: rapid jump from 1000 to ~1200. Then steady gain of ~20-30 points per iteration. If Elo is flat for more than 10 iterations, the AI is stuck and needs investigation.
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 19                                                    -->
+<!-- ============================================================ -->
+<div class="episode" id="ep19">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">19</div>
+    <div class="ep-info">
+      <h2>Arena Evaluation</h2>
+      <div class="ep-tagline">Head-to-head games as the ground truth for AI improvement</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>Why Arena, Not Just Loss?</h3>
+      <p>Loss decrease does not always mean the AI plays better. A network could memorize training positions while performing worse on novel states. The <strong>arena</strong> is the definitive test: pit the new network against the previous best in actual games.</p>
+
+      <h3>Arena Protocol</h3>
+      <ul>
+        <li>New network plays against the current best over N games (default: 100)</li>
+        <li>Each network plays as both player 1 and player 2 (alternating) for fairness</li>
+        <li>Temperature = 0 (greedy, no randomness) and no Dirichlet noise (deterministic evaluation)</li>
+        <li>If new network wins > 55% of games, it replaces the best network</li>
+      </ul>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">06_evaluation/arena.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">def</span> <span class="fn">run_arena</span>(network_new, network_old, num_games=<span class="nu">100</span>, ...):
+    wins, losses, draws = <span class="nu">0</span>, <span class="nu">0</span>, <span class="nu">0</span>
+
+    <span class="kw">for</span> game_i <span class="kw">in</span> <span class="fn">range</span>(num_games):
+        <span class="kw">if</span> game_i % <span class="nu">2</span> == <span class="nu">0</span>:
+            <span class="cm"># New network plays as player 1</span>
+            result = play_single_game(network_new, network_old, ...)
+        <span class="kw">else</span>:
+            <span class="cm"># New network plays as player 2</span>
+            result = play_single_game(network_old, network_new, ...)
+        <span class="cm"># tally wins/losses/draws...</span>
+
+    <span class="kw">return</span> ArenaResult(wins, losses, draws, win_rate)
+
+<span class="dc">@property</span>
+<span class="kw">def</span> <span class="fn">new_is_better</span>(self):
+    <span class="kw">return</span> self.win_rate > <span class="nu">0.55</span>  <span class="cm"># AlphaZero's 55% threshold</span></pre>
+      </div>
+
+      <div class="callout insight">
+        <div class="callout-label">Why 55%?</div>
+        A 50% win rate means the networks are equally strong. We need a margin above 50% to be confident the new network is truly better (not just lucky). AlphaZero uses 55% as this threshold &mdash; statistically significant with ~100 games.
+      </div>
+
+      <h3>The Full Training + Evaluation Picture</h3>
+
+      <div class="diagram"><span class="hl">The Complete AlphaZero Cycle</span>
+
+   +-------------------+
+   |  <span class="hl2">Neural Network</span>   |<--------- weights updated by training
+   +-------------------+
+         |         ^
+         |         |  policy targets
+         v         |  (from MCTS visits)
+   +-------------------+
+   |   <span class="hl3">MCTS Search</span>     |<--------- guided by network predictions
+   +-------------------+
+         |         ^
+         |         |  game records
+         v         |  (states + outcomes)
+   +-------------------+
+   |   <span class="hl4">Self-Play</span>       |<--------- network plays both sides
+   +-------------------+
+         |
+         v
+   +-------------------+
+   |  <span class="hl5">Replay Buffer</span>    |<--------- stores 500K positions
+   +-------------------+
+         |
+         |  random batches
+         v
+   +-------------------+
+   |   <span class="hl2">Training</span>        |<--------- gradient descent on 5 losses
+   +-------------------+
+         |
+         |  every 10 iterations
+         v
+   +-------------------+
+   |   <span class="hl3">Arena</span>           |<--------- new vs. best, 100 games
+   +-------------------+
+         |
+         |  if win_rate > 55%
+         v
+      <span class="hl4">Save Checkpoint</span>
+      Update Best Network</div>
+
+    </div>
+  </div>
+</div>
+
+</div><!-- /main -->
+
+<!-- ========== JAVASCRIPT ========== -->
+<script>
+// -- Episode toggle --
+function toggleEpisode(header) {
+  const ep = header.closest('.episode');
+  ep.classList.toggle('open');
+}
+
+// -- Sidebar navigation --
+document.querySelectorAll('.nav-link').forEach(link => {
+  link.addEventListener('click', e => {
+    e.preventDefault();
+    const targetId = link.dataset.target;
+    const target = document.getElementById(targetId);
+    if (!target) return;
+
+    // Open the episode if it's closed
+    if (target.classList.contains('episode') && !target.classList.contains('open')) {
+      target.classList.add('open');
+    }
+
+    // Smooth scroll
+    const y = target.getBoundingClientRect().top + window.scrollY - 70;
+    window.scrollTo({ top: y, behavior: 'smooth' });
+
+    // Close mobile sidebar
+    document.getElementById('sidebar').classList.remove('open');
+  });
+});
+
+// -- Active nav tracking --
+function updateActiveNav() {
+  const sections = document.querySelectorAll('.episode, .hero');
+  const links = document.querySelectorAll('.nav-link');
+  let currentId = 'hero';
+
+  sections.forEach(section => {
+    const rect = section.getBoundingClientRect();
+    if (rect.top < 200) {
+      currentId = section.id;
+    }
+  });
+
+  links.forEach(link => {
+    link.classList.toggle('active', link.dataset.target === currentId);
+  });
+}
+
+// -- Reading progress --
+function updateProgress() {
+  const scrollTop = window.scrollY;
+  const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+  const pct = docHeight > 0 ? (scrollTop / docHeight) * 100 : 0;
+  document.getElementById('progressFill').style.width = pct + '%';
+}
+
+window.addEventListener('scroll', () => {
+  updateActiveNav();
+  updateProgress();
+}, { passive: true });
+
+// -- Mobile burger --
+document.getElementById('burgerBtn').addEventListener('click', () => {
+  document.getElementById('sidebar').classList.toggle('open');
+});
+
+// -- Initialize --
+updateActiveNav();
+updateProgress();
+</script>
+
+</body>
+</html>
