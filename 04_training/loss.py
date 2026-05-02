@@ -138,9 +138,9 @@ def ownership_loss(
 def compute_total_loss(
     network_output: 'NetworkOutput',
     batch: 'TrainingBatch',
-    lambda_value: float = 1.0,
-    lambda_score: float = 0.5,
-    lambda_ownership: float = 0.5,
+    lambda_value: float = 3.0,
+    lambda_score: float = 1.0,
+    lambda_ownership: float = 1.0,
     lambda_opp: float = 0.15,
 ) -> LossBreakdown:
     """Compute the complete weighted multi-task loss.
@@ -168,10 +168,8 @@ def compute_total_loss(
     l_value = value_loss(network_output.win_value, batch.value_targets)
     l_score = score_loss(network_output.score_margin, batch.score_targets)
     l_ownership = ownership_loss(network_output.ownership, batch.ownership_targets)
-    # NOTE: Opponent policy uses all-ones mask because opp_policy_targets come from
-    # a different game state (the opponent's turn), so the current player's legal_masks
-    # don't apply. The target already has zero probability on irrelevant moves.
-    opp_mask = torch.ones_like(batch.legal_masks)
+    # Opponent policy targets come from the next ply state, so use its legal mask.
+    opp_mask = batch.opp_legal_masks
     l_opp = policy_loss(
         network_output.opp_policy_logits, batch.opp_policy_targets, opp_mask
     )
@@ -236,6 +234,7 @@ if __name__ == "__main__":
         score_targets=torch.zeros(B, 1),
         ownership_targets=torch.rand(B, 9).round(),
         legal_masks=torch.ones(B, 81),
+        opp_legal_masks=torch.ones(B, 81),
     )
 
     breakdown = compute_total_loss(out, batch)

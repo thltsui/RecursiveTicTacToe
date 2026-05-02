@@ -65,6 +65,7 @@ class TestTotalLoss:
             score_targets=torch.zeros(B, 1),
             ownership_targets=torch.rand(B, 9).round(),
             legal_masks=torch.ones(B, 81),
+            opp_legal_masks=torch.ones(B, 81),
         )
 
         breakdown = loss_mod.compute_total_loss(out, batch)
@@ -89,6 +90,7 @@ class TestTotalLoss:
             score_targets=torch.zeros(B, 1),
             ownership_targets=torch.rand(B, 9).round(),
             legal_masks=torch.ones(B, 81),
+            opp_legal_masks=torch.ones(B, 81),
         )
 
         breakdown = loss_mod.compute_total_loss(out, batch)

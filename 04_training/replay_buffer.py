@@ -28,6 +28,7 @@ class TrainingBatch:
     score_targets:      torch.Tensor  # (B, 1)
     ownership_targets:  torch.Tensor  # (B, 9)
     legal_masks:        torch.Tensor  # (B, 81)
+    opp_legal_masks:    torch.Tensor  # (B, 81)
 
 
 class ReplayBuffer:
@@ -98,6 +99,7 @@ class ReplayBuffer:
             ),
             ownership_targets=torch.stack([s.ownership_target for s in samples]),  # (B, 9)
             legal_masks=torch.stack([s.legal_mask for s in samples]),           # (B, 81)
+            opp_legal_masks=torch.stack([s.opp_legal_mask for s in samples]),   # (B, 81)
         )
 
     def __len__(self) -> int:
@@ -111,6 +113,62 @@ class ReplayBuffer:
         Threshold: at least batch_size * 10 positions (default: 2560).
         """
         return len(self._buffer) >= min_positions
+
+    def save_to_file(self, path: str) -> None:
+        """Save buffer contents to disk for persistence across restarts.
+
+        Serializes all MoveRecord tensors and scalars into a single file.
+
+        Args:
+            path: File path to save the buffer to.
+        """
+        import os
+        os.makedirs(os.path.dirname(path) if os.path.dirname(path) else '.', exist_ok=True)
+        data = {
+            'capacity': self.capacity,
+            'position': self._position,
+            'records': [{
+                'state_tensor': rec.state_tensor,
+                'policy_target': rec.policy_target,
+                'opp_policy_target': rec.opp_policy_target,
+                'opp_legal_mask': rec.opp_legal_mask,
+                'legal_mask': rec.legal_mask,
+                'current_player': rec.current_player,
+                'value_target': rec.value_target,
+                'score_target': rec.score_target,
+                'ownership_target': rec.ownership_target,
+            } for rec in self._buffer],
+        }
+        torch.save(data, path)
+
+    @classmethod
+    def load_from_file(cls, path: str) -> 'ReplayBuffer':
+        """Load buffer contents from disk.
+
+        Args:
+            path: File path to load the buffer from.
+
+        Returns:
+            ReplayBuffer with restored contents.
+        """
+        data = torch.load(path, weights_only=False)
+        buf = cls(capacity=data['capacity'])
+        buf._position = data['position']
+        buf._buffer = [
+            MoveRecord(
+                state_tensor=rec['state_tensor'],
+                policy_target=rec['policy_target'],
+                opp_policy_target=rec['opp_policy_target'],
+                opp_legal_mask=rec['opp_legal_mask'],
+                legal_mask=rec['legal_mask'],
+                current_player=rec['current_player'],
+                value_target=rec['value_target'],
+                score_target=rec['score_target'],
+                ownership_target=rec['ownership_target'],
+            )
+            for rec in data['records']
+        ]
+        return buf
 
 
 if __name__ == "__main__":
@@ -128,6 +186,7 @@ if __name__ == "__main__":
                 state_tensor=torch.randn(7, 9, 9),
                 policy_target=torch.softmax(torch.randn(81), dim=0),
                 opp_policy_target=torch.softmax(torch.randn(81), dim=0),
+                opp_legal_mask=torch.ones(81),
                 legal_mask=torch.ones(81),
                 current_player=1 if m % 2 == 0 else -1,
                 value_target=1.0,
@@ -149,6 +208,7 @@ if __name__ == "__main__":
     assert batch.score_targets.shape == (16, 1)
     assert batch.ownership_targets.shape == (16, 9)
     assert batch.legal_masks.shape == (16, 81)
+    assert batch.opp_legal_masks.shape == (16, 81)
     print(f"Sampled batch: shapes correct")
 
     # Test circular overwrite
@@ -159,6 +219,7 @@ if __name__ == "__main__":
                 state_tensor=torch.randn(7, 9, 9),
                 policy_target=torch.softmax(torch.randn(81), dim=0),
                 opp_policy_target=torch.softmax(torch.randn(81), dim=0),
+                opp_legal_mask=torch.ones(81),
                 legal_mask=torch.ones(81),
                 current_player=1,
             ) for _ in range(10)],

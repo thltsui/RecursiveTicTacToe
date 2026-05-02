@@ -25,39 +25,43 @@ def main():
     TrainingConfig = trainer_mod.TrainingConfig
 
     config = TrainingConfig(
-        # Network — smaller for fast iteration on M2
-        channels=64,
-        num_blocks=4,
+        # Network — large: 192ch x 10 blocks (~6.78M params)
+        channels=192,
+        num_blocks=10,
 
-        # Self-play — CPU is faster for batch=1 MCTS inference
-        device='cpu',           # MCTS runs on CPU
-        games_per_iteration=25,
-        num_simulations=50,     # lighter search, still learns
-        temperature_threshold=15,
+        # Self-play — 100% pure self-play with anti-draw value shaping
+        device='cpu',
+        games_per_iteration=20,
+        num_simulations=200,
+        temperature_threshold=30,  # AlphaZero standard: temp=1 for first 30 moves
+        self_play_with_best=False,
 
         # Training
-        batch_size=128,
-        batches_per_iteration=50,
-        learning_rate=0.002,
+        batch_size=256,
+        batches_per_iteration=100,  # auto-capped if buffer is small
+        learning_rate=0.001,
         weight_decay=1e-4,
         grad_clip_norm=1.0,
+        lr_decay_every_n=50,
+        lr_decay_gamma=0.5,
 
-        # Loss weights (KataGo defaults)
+        # Loss weights
         lambda_value=1.0,
         lambda_score=0.5,
         lambda_ownership=0.5,
         lambda_opp=0.15,
 
         # Evaluation
-        arena_every_n=10,       # arena every 10 iterations
-        arena_games=20,         # quick arena
+        arena_every_n=10,       # arena every 10 iterations to catch issues early
+        arena_games=50,
         win_rate_threshold=0.55,
 
         # Buffer
-        buffer_capacity=100_000,
+        buffer_capacity=200_000,
 
-        # Checkpointing
-        checkpoint_dir='checkpoints/',
+        # Checkpointing — fresh start with pure self-play
+        checkpoint_dir='checkpoints/large_v3_pure_self_play/',
+        checkpoint_every_n=5,
         seed=42,
     )
 
@@ -76,7 +80,7 @@ def main():
     print(f"  Training:     {config.batches_per_iteration} batches x B={config.batch_size}")
     print(f"  Arena:        every {config.arena_every_n} iters, {config.arena_games} games")
     print(f"  Buffer:       {config.buffer_capacity:,} capacity")
-    print(f"  Estimated:    ~1-2 min/iteration")
+    print(f"  Checkpoint:   every {config.checkpoint_every_n} iters")
     print("=" * 60)
     print("  Ctrl+C to stop (checkpoint auto-saved)")
     print("=" * 60)

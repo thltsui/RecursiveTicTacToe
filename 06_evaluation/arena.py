@@ -28,11 +28,12 @@ class ArenaResult:
     losses:   int
     draws:    int
     win_rate: float
+    win_rate_threshold: float = 0.55
 
     @property
     def new_is_better(self) -> bool:
-        """Return True if new network should replace old (win_rate > 0.55)."""
-        return self.win_rate > 0.55
+        """Return True if new network should replace old."""
+        return self.win_rate > self.win_rate_threshold
 
 
 def play_single_game(
@@ -86,6 +87,7 @@ def run_arena(
     network_old: 'UltimateTTTNetwork',
     num_games: int = 100,
     num_simulations: int = 400,
+    win_rate_threshold: float = 0.55,
     device: str = 'cpu',
 ) -> ArenaResult:
     """Pit two networks against each other over num_games games.
@@ -138,6 +140,7 @@ def run_arena(
         losses=losses,
         draws=draws,
         win_rate=win_rate,
+        win_rate_threshold=win_rate_threshold,
     )
 
 
