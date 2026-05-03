@@ -332,7 +332,7 @@ pre.code-block::-webkit-scrollbar-thumb { background: var(--border); border-radi
   <div class="header-title">
     <span>&#9670;</span> Ultimate TTT &mdash; AlphaZero Course
   </div>
-  <div class="header-right">14 episodes &middot; ~60 min read</div>
+  <div class="header-right">15 episodes &middot; ~65 min read</div>
 </header>
 
 <!-- ========== PROGRESS BAR ========== -->
@@ -382,6 +382,11 @@ pre.code-block::-webkit-scrollbar-thumb { background: var(--border); border-radi
     <a class="nav-link" data-target="ep19"><span class="ep-num">19</span> Arena Evaluation</a>
   </div>
 
+  <div class="nav-group">
+    <div class="nav-group-label">Deployment</div>
+    <a class="nav-link" data-target="ep20"><span class="ep-num">20</span> Web Dashboard</a>
+  </div>
+
 </nav>
 
 <!-- ========== MAIN ========== -->
@@ -395,6 +400,7 @@ pre.code-block::-webkit-scrollbar-thumb { background: var(--border); border-radi
     <span class="badge green">Python</span>
     <span class="badge purple">PyTorch</span>
     <span class="badge orange">AlphaZero + KataGo</span>
+    <span class="badge">Flask + JS</span>
   </div>
 </section>
 
@@ -1550,6 +1556,106 @@ Mapping to 9x9 spatial grid:
          v
       <span class="hl4">Save Checkpoint</span>
       Update Best Network</div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 20                                                    -->
+<!-- ============================================================ -->
+<div class="episode" id="ep20">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">20</div>
+    <div class="ep-info">
+      <h2>Web Dashboard &mdash; Play vs. the AI</h2>
+      <div class="ep-tagline">A Flask backend + modern JS frontend to play against your trained AlphaZero agent</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>From Terminal to Browser</h3>
+      <p>The CLI <code>play.py</code> is great for quick testing, but a web interface lets anyone interact with the AI. We built a lightweight <strong>Flask</strong> server that wraps the existing game engine and a modern <strong>vanilla JS</strong> frontend with glassmorphism aesthetics.</p>
+
+      <div class="diagram"><span class="hl">Web Dashboard Architecture</span>
+
+   <span class="hl2">Browser (JS)</span>                   <span class="hl3">Flask Server (Python)</span>
+   ┌──────────────┐                 ┌──────────────────────┐
+   │              │   POST /api/    │                      │
+   │   Board UI   │ ──────────────> │  GameState + Rules   │
+   │   + Events   │                 │  MCTS Search (200s)  │
+   │              │ <────────────── │  Network Inference   │
+   │   Render     │   JSON response │                      │
+   └──────────────┘                 └──────────────────────┘
+
+   Key endpoints:
+     <span class="hl4">POST /api/new_game</span>  →  creates fresh GameState
+     <span class="hl4">POST /api/move</span>      →  applies human move, runs MCTS, returns AI move</div>
+
+      <h3>Backend: Stateless API Design</h3>
+      <p>The server is <em>stateless</em> &mdash; the full game state is serialized to JSON and sent back-and-forth with every request. This means no session management, no cookies, and the server can be restarted without losing games.</p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">web_app/app.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">def</span> <span class="fn">state_to_dict</span>(state):
+    <span class="st">"""Serialize a GameState to JSON-friendly dict."""</span>
+    <span class="kw">return</span> {
+        <span class="st">'cells'</span>: state.cells.tolist(),
+        <span class="st">'sub_board_results'</span>: state.sub_board_results.tolist(),
+        <span class="st">'active_sub_board'</span>: <span class="fn">int</span>(state.active_sub_board),
+        <span class="st">'current_player'</span>: <span class="fn">int</span>(state.current_player),
+        <span class="st">'legal_moves'</span>: [<span class="fn">int</span>(m) <span class="kw">for</span> m <span class="kw">in</span> get_legal_moves(state)],
+        <span class="cm">...</span>
+    }</pre>
+      </div>
+
+      <h3>Frontend: Active Sub-Board Indicator</h3>
+      <p>The most important UX feature is the <strong>active sub-board ring</strong>. When a player makes a move, their opponent is forced to play in a specific sub-board. The frontend uses two distinct CSS states:</p>
+
+      <table class="styled-table">
+        <tr><th>State</th><th>CSS Class</th><th>Visual</th></tr>
+        <tr><td>Free choice (any board)</td><td><code>.active</code></td><td>Subtle cyan glow on all open boards</td></tr>
+        <tr><td>Single required board</td><td><code>.active-single</code></td><td>Bright pulsing ring with strong glow</td></tr>
+      </table>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">web_app/static/style.css</span><span class="lang-badge">CSS</span></div>
+        <pre class="code-block"><span class="ty">.sub-board.active-single</span> {
+    border-color: <span class="fn">var</span>(--cyan);
+    border-width: <span class="nu">2.5px</span>;
+    box-shadow:
+        <span class="nu">0 0 16px</span> <span class="fn">rgba</span>(<span class="nu">6, 214, 160, 0.35</span>),
+        <span class="nu">0 0 40px</span> <span class="fn">rgba</span>(<span class="nu">6, 214, 160, 0.15</span>);
+    animation: <span class="fn">board-pulse-strong</span> <span class="nu">1.8s</span> ease-in-out infinite;
+}</pre>
+      </div>
+
+      <h3>AI Analysis Panel</h3>
+      <p>After each AI move, the server returns the MCTS visit counts and value head evaluation. The frontend renders this as:</p>
+      <ul>
+        <li><strong>Evaluation bar</strong> &mdash; shows who the AI thinks is winning (cyan = human ahead, magenta = AI ahead)</li>
+        <li><strong>Top moves</strong> &mdash; ranked list of the AI's top candidate moves with visit percentages</li>
+      </ul>
+
+      <div class="callout key">
+        <div class="callout-label">Design Principle</div>
+        The analysis panel serves a dual purpose: it makes the game more engaging (you can see the AI's "thought process"), and it doubles as a debugging tool for evaluating model quality during training.
+      </div>
+
+      <h3>Running the Dashboard</h3>
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">Terminal</span><span class="lang-badge">Shell</span></div>
+        <pre class="code-block"><span class="cm"># Install dependencies with uv</span>
+uv sync --extra web
+
+<span class="cm"># Launch the server</span>
+uv run python web_app/app.py
+
+<span class="cm"># Open in browser</span>
+open http://localhost:<span class="nu">5001</span></pre>
+      </div>
 
     </div>
   </div>

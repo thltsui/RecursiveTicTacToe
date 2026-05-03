@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
-"""Web dashboard for playing Ultimate Tic-Tac-Toe against the AlphaZero AI."""
+"""Web dashboard for playing Ultimate Tic-Tac-Toe against the AlphaZero AI.
+
+Run from the project root:
+    uv run python -m web_app.app
+Or directly:
+    cd <project_root> && uv run python web_app/app.py
+"""
 
 import sys
 import os
 import glob
 import json
 
-sys.path.insert(0, os.path.dirname(__file__))
+# Ensure the project root is on sys.path so we can import game modules
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, PROJECT_ROOT)
 
 import torch
 from flask import Flask, jsonify, request, send_from_directory
@@ -44,7 +52,7 @@ def load_network(checkpoint_path=None):
         cp_path = checkpoint_path
     else:
         # Try v3 pure self-play first, then fall back
-        v3_dir = 'checkpoints/large_v3_pure_self_play'
+        v3_dir = os.path.join(PROJECT_ROOT, 'checkpoints/large_v3_pure_self_play')
         if os.path.isdir(v3_dir):
             ckpts = sorted([f for f in os.listdir(v3_dir) if f.endswith('.pt') and 'checkpoint' in f])
             if ckpts:
@@ -52,7 +60,7 @@ def load_network(checkpoint_path=None):
             else:
                 cp_path = None
         else:
-            pts = sorted(glob.glob('checkpoints/*.pt'))
+            pts = sorted(glob.glob(os.path.join(PROJECT_ROOT, 'checkpoints/*.pt')))
             cp_path = pts[-1] if pts else None
 
     if not cp_path:
