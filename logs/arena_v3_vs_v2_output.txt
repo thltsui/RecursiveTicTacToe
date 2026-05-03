@@ -1,0 +1,58 @@
+Loading models for head-to-head evaluation...
+---------------------------------------------
+Loading checkpoints/large_v3_pure_self_play/checkpoint_iter00075_elo0.pt...
+  Iteration: 75
+Loading checkpoints/large_v2_fixed/checkpoint_iter00005_elo0.pt...
+  Iteration: 5
+
+============================================================
+  EVALUATION: v3 (Pure Self Play) vs v2 (Mixed)
+============================================================
+  Game 1/20: v3_pure vs v2_mixed (going second)
+    Result: v3_pure wins | Current Score: v3_pure 1 - v2_mixed 0 - Draws 0
+  Game 2/20: v2_mixed vs v3_pure (going second)
+    Result: v2_mixed wins | Current Score: v3_pure 1 - v2_mixed 1 - Draws 0
+  Game 3/20: v3_pure vs v2_mixed (going second)
+    Result: v3_pure wins | Current Score: v3_pure 2 - v2_mixed 1 - Draws 0
+  Game 4/20: v2_mixed vs v3_pure (going second)
+    Result: v2_mixed wins | Current Score: v3_pure 2 - v2_mixed 2 - Draws 0
+  Game 5/20: v3_pure vs v2_mixed (going second)
+    Result: v3_pure wins | Current Score: v3_pure 3 - v2_mixed 2 - Draws 0
+  Game 6/20: v2_mixed vs v3_pure (going second)
+    Result: v2_mixed wins | Current Score: v3_pure 3 - v2_mixed 3 - Draws 0
+  Game 7/20: v3_pure vs v2_mixed (going second)
+    Result: v3_pure wins | Current Score: v3_pure 4 - v2_mixed 3 - Draws 0
+  Game 8/20: v2_mixed vs v3_pure (going second)
+    Result: v2_mixed wins | Current Score: v3_pure 4 - v2_mixed 4 - Draws 0
+  Game 9/20: v3_pure vs v2_mixed (going second)
+    Result: v3_pure wins | Current Score: v3_pure 5 - v2_mixed 4 - Draws 0
+  Game 10/20: v2_mixed vs v3_pure (going second)
+    Result: v2_mixed wins | Current Score: v3_pure 5 - v2_mixed 5 - Draws 0
+  Game 11/20: v3_pure vs v2_mixed (going second)
+    Result: v3_pure wins | Current Score: v3_pure 6 - v2_mixed 5 - Draws 0
+  Game 12/20: v2_mixed vs v3_pure (going second)
+    Result: v2_mixed wins | Current Score: v3_pure 6 - v2_mixed 6 - Draws 0
+  Game 13/20: v3_pure vs v2_mixed (going second)
+    Result: v3_pure wins | Current Score: v3_pure 7 - v2_mixed 6 - Draws 0
+  Game 14/20: v2_mixed vs v3_pure (going second)
+    Result: v2_mixed wins | Current Score: v3_pure 7 - v2_mixed 7 - Draws 0
+  Game 15/20: v3_pure vs v2_mixed (going second)
+    Result: v3_pure wins | Current Score: v3_pure 8 - v2_mixed 7 - Draws 0
+  Game 16/20: v2_mixed vs v3_pure (going second)
+    Result: v2_mixed wins | Current Score: v3_pure 8 - v2_mixed 8 - Draws 0
+  Game 17/20: v3_pure vs v2_mixed (going second)
+    Result: v3_pure wins | Current Score: v3_pure 9 - v2_mixed 8 - Draws 0
+  Game 18/20: v2_mixed vs v3_pure (going second)
+    Result: v2_mixed wins | Current Score: v3_pure 9 - v2_mixed 9 - Draws 0
+  Game 19/20: v3_pure vs v2_mixed (going second)
+    Result: v3_pure wins | Current Score: v3_pure 10 - v2_mixed 9 - Draws 0
+  Game 20/20: v2_mixed vs v3_pure (going second)
+    Result: v2_mixed wins | Current Score: v3_pure 10 - v2_mixed 10 - Draws 0
+
+============================================================
+  FINAL SCORE:
+  v3_pure: 10 wins
+  v2_mixed: 10 wins
+  Draws: 0
+  v3_pure win rate (including draws): 0.500
+============================================================

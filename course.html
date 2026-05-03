@@ -1186,11 +1186,16 @@ Mapping to 9x9 spatial grid:
           <tr><td><code>policy_target</code></td><td>(81,)</td><td>During game</td><td>MCTS visit distribution (pruned)</td></tr>
           <tr><td><code>opp_policy_target</code></td><td>(81,)</td><td>During game</td><td>Next move's policy (opponent prediction target)</td></tr>
           <tr><td><code>legal_mask</code></td><td>(81,)</td><td>During game</td><td>Which moves were legal</td></tr>
-          <tr><td><code>value_target</code></td><td>scalar</td><td>After game</td><td>+1 win, -1 loss, 0 draw</td></tr>
+          <tr><td><code>value_target</code></td><td>scalar</td><td>After game</td><td>+1 win, -1 loss, -0.5 draw</td></tr>
           <tr><td><code>score_target</code></td><td>scalar</td><td>After game</td><td>Normalized sub-board differential</td></tr>
           <tr><td><code>ownership_target</code></td><td>(9,)</td><td>After game</td><td>Did current player win each sub-board?</td></tr>
         </tbody>
       </table>
+
+      <div class="callout warning">
+        <div class="callout-label">Anti-Draw Value Shaping</div>
+        In early training, the AI fell into a <strong>Nash Equilibrium</strong> where it played defensively to force draws. A 0.0 value for a draw wasn't punishing enough. We fixed this by assigning <code>-0.5</code> for draws, strongly incentivizing the agent to take risks and play for the win.
+      </div>
 
       <div class="callout insight">
         <div class="callout-label">Temperature Schedule</div>

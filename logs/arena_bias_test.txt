@@ -1,0 +1,17 @@
+Loading best_model.pt...
+Loaded: 128ch x 8blocks (iter 200)
+
+P  10/50: P1 0W / 0L / 10D (wr=0.000)
+  20/50: P1 0W / 0L / 20D (wr=0.000)
+  30/50: P1 0W / 0L / 30D (wr=0.000)
+  40/50: P1 0W / 0L / 40D (wr=0.000)
+  50/50: P1 0W / 0L / 50D (wr=0.000)
+
+Final: P1 0W / 0L / 50D (wr=0.000)
+If first-player matters, wr should be significantly > 0.5
+If balanced, wr should be ~0.5
+50: P1 0W / 0L / 5D  (wr=0.000)  [150s @ 2.0 games/min]
+  Game  6/50: P1 0W / 0L / 6D  (wr=0.000)  [179s @ 2.0 games/min]
+  Game  7/50: P1 0W / 0L / 7D  (wr=0.000)  [209s @ 2.0 games/min]
+  Game  8/50: P1 0W / 0L / 8D  (wr=0.000)  [240s @ 2.0 games/min]
+  Game  9/50: P1 0W / 0L / 9D  (wr=0.000)  [271s @ 2.0 games/min]

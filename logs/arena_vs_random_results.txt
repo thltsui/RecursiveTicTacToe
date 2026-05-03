@@ -1,0 +1,14 @@
+Loading best_model.pt...
+Loaded: 128ch x 8blocks (iter 200)
+
+Playing 50 games: best_model (P1) vs random (P2)
+
+  Game  1/50: AI 0W / 1L / 0D  (wr=0.000)  [15s @ 3.9 games/min]
+  Game  2/50: AI 0W / 2L / 0D  (wr=0.000)  [31s @ 3.9 games/min]
+  Game  3/50: AI 0W / 3L / 0D  (wr=0.000)  [39s @ 4.6 games/min]
+  Game  4/50: AI 0W / 4L / 0D  (wr=0.000)  [55s @ 4.4 games/min]
+  Game  5/50: AI 0W / 5L / 0D  (wr=0.000)  [72s @ 4.2 games/min]
+  Game  6/50: AI 0W / 6L / 0D  (wr=0.000)  [86s @ 4.2 games/min]
+  Game  7/50: AI 0W / 7L / 0D  (wr=0.000)  [99s @ 4.2 games/min]
+  Game  8/50: AI 1W / 7L / 0D  (wr=0.125)  [113s @ 4.2 games/min]
+  Game  9/50: AI 1W / 8L / 0D  (wr=0.111)  [126s @ 4.3 games/min]

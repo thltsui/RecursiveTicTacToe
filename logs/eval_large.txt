@@ -1,0 +1,13 @@
+Loading: checkpoints/large_192ch_10blocks/checkpoint_iter00105_elo0.pt
+  Iteration: 105, Elo: 0.5
+
+Loading original best_model.pt (128ch x 8blocks)...
+  Iteration: 200, Elo: 1.0
+
+============================================================
+  EVALUATION 1: Large Model vs Random Opponent
+============================================================
+  [Random] Game 1/20: D  (0W/0L/1D)
+  [Random] Game 2/20: W  (1W/0L/1D)
+  [Random] Game 3/20: L  (1W/1L/1D)
+  [Random] Game 4/20: D  (1W/1L/2D)

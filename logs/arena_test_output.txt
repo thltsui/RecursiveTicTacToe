@@ -1,0 +1,31 @@
+============================================================
+  ULTIMATE TTT — Arena Evaluation
+============================================================
+  Games: 10 | Sims: 200 | Device: cpu
+
+  Loading networks...
+  best_model.pt:        iter 200 | 128ch x 8blocks
+  checkpoint_iter00210: iter 210 | 128ch x 8blocks
+  Loaded in 0.0s
+
+  Round 1 — iter 210 (challenger) vs iter 200 (best)
+  ────────────────────────────────────────────────────────
+  W: 0  L: 5  D: 5  Win rate: 0.000
+  Better? NO (threshold >= 55%)
+
+  Round 2 — iter 200 (challenger) vs iter 210 (best)
+  ────────────────────────────────────────────────────────
+  W: 5  L: 0  D: 5  Win rate: 0.500
+  Better? NO (threshold >= 55%)
+
+  ════════════════════════════════════════════════════════
+  SUMMARY
+  ════════════════════════════════════════════════════════
+  Combined win rate (iter 210): 0.250
+  Round 1: iter 210 vs iter 200: 0W / 5L / 5D (wr=0.000)
+  Round 2: iter 200 vs iter 210: 5W / 0L / 5D (wr=0.500)
+  Total games: 20
+
+  Training metrics comparison:
+    iter 200: loss=2.686 | policy=1.745 | value=0.195
+    iter 210: loss=2.687 | policy=1.746 | value=0.194
