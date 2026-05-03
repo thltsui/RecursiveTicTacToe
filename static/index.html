@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultimate Tic-Tac-Toe — AlphaZero AI</title>
+    <meta name="description" content="Play Ultimate Tic-Tac-Toe against a self-trained AlphaZero AI in your browser.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <span class="logo-icon">⊞</span>
+                    <div>
+                        <h1>Ultimate Tic-Tac-Toe</h1>
+                        <p class="subtitle">AlphaZero Self-Play Agent — v3</p>
+                    </div>
+                </div>
+                <div class="controls">
+                    <div class="difficulty-selector" id="difficulty-selector">
+                        <button class="diff-btn" data-diff="easy">Easy</button>
+                        <button class="diff-btn active" data-diff="medium">Medium</button>
+                        <button class="diff-btn" data-diff="hard">Hard</button>
+                    </div>
+                    <button class="btn-new-game" id="btn-new-game">New Game</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main content -->
+        <main class="main">
+            <!-- Status bar -->
+            <div class="status-bar" id="status-bar">
+                <div class="status-indicator" id="status-indicator"></div>
+                <span id="status-text">Click "New Game" to start</span>
+            </div>
+
+            <!-- Game board -->
+            <div class="board-container">
+                <div class="board" id="board">
+                    <!-- 9 sub-boards, each with 9 cells -->
+                </div>
+            </div>
+
+            <!-- AI Analysis Panel -->
+            <div class="analysis-panel" id="analysis-panel">
+                <h3>AI Analysis</h3>
+                <div class="analysis-content">
+                    <div class="eval-bar-container">
+                        <div class="eval-label">Evaluation</div>
+                        <div class="eval-bar">
+                            <div class="eval-fill" id="eval-fill"></div>
+                        </div>
+                        <div class="eval-value" id="eval-value">0.00</div>
+                    </div>
+                    <div class="top-moves" id="top-moves">
+                        <div class="top-moves-label">Top Moves</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Trained via pure self-play with MCTS · 192ch × 10 blocks · Anti-draw value shaping</p>
+        </footer>
+    </div>
+
+    <!-- Overlay for game result -->
+    <div class="result-overlay" id="result-overlay">
+        <div class="result-card" id="result-card">
+            <div class="result-icon" id="result-icon"></div>
+            <h2 id="result-title"></h2>
+            <p id="result-subtitle"></p>
+            <button class="btn-new-game" id="btn-play-again">Play Again</button>
+        </div>
+    </div>
+
+    <script src="/static/main.js"></script>
+</body>
+</html>
