@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ultimate Tic-Tac-Toe — AlphaZero AI</title>
-    <meta name="description" content="Play Ultimate Tic-Tac-Toe against a self-trained AlphaZero AI in your browser.">
+    <meta name="description" content="Play Ultimate Tic-Tac-Toe against a self-trained AlphaZero AI — see how it thinks in real-time.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -19,7 +19,7 @@
                     <span class="logo-icon">⊞</span>
                     <div>
                         <h1>Ultimate Tic-Tac-Toe</h1>
-                        <p class="subtitle">AlphaZero Self-Play Agent — v3</p>
+                        <p class="subtitle">AlphaZero Agent — v5 · 200 iterations · 92% win rate</p>
                     </div>
                 </div>
                 <div class="controls">
@@ -33,34 +33,97 @@
             </div>
         </header>
 
-        <!-- Main content -->
+        <!-- Main content — side by side -->
         <main class="main">
-            <!-- Status bar -->
-            <div class="status-bar" id="status-bar">
-                <div class="status-indicator" id="status-indicator"></div>
-                <span id="status-text">Click "New Game" to start</span>
-            </div>
+            <!-- Left: Game board -->
+            <div class="game-side">
+                <!-- Status bar -->
+                <div class="status-bar" id="status-bar">
+                    <div class="status-indicator" id="status-indicator"></div>
+                    <span id="status-text">Click "New Game" to start</span>
+                </div>
 
-            <!-- Game board -->
-            <div class="board-container">
-                <div class="board" id="board">
-                    <!-- 9 sub-boards, each with 9 cells -->
+                <!-- Game board -->
+                <div class="board-container">
+                    <div class="board" id="board">
+                        <!-- 9 sub-boards, each with 9 cells -->
+                    </div>
+                </div>
+
+                <!-- Visualization toggle bar -->
+                <div class="viz-toggle-bar" id="viz-toggle-bar">
+                    <span class="viz-label">Overlay</span>
+                    <button class="viz-btn active" data-mode="none">None</button>
+                    <button class="viz-btn" data-mode="visits">MCTS Visits</button>
+                    <button class="viz-btn" data-mode="policy">Policy</button>
+                    <button class="viz-btn" data-mode="qvalue">Q-Value</button>
+                    <button class="viz-btn" data-mode="opponent">Opponent</button>
                 </div>
             </div>
 
-            <!-- AI Analysis Panel -->
-            <div class="analysis-panel" id="analysis-panel">
-                <h3>AI Analysis</h3>
-                <div class="analysis-content">
-                    <div class="eval-bar-container">
-                        <div class="eval-label">Evaluation</div>
-                        <div class="eval-bar">
-                            <div class="eval-fill" id="eval-fill"></div>
+            <!-- Right: AI Analysis Panel -->
+            <div class="analysis-side" id="analysis-side">
+                <div class="analysis-panel" id="analysis-panel">
+                    <h3>AI Analysis</h3>
+
+                    <!-- Evaluation: dual columns -->
+                    <div class="eval-dual">
+                        <div class="eval-col eval-col-human">
+                            <div class="eval-side-label">Human (✕)</div>
+                            <div class="eval-pct" id="eval-pct-human">50%</div>
+                            <div class="eval-best-label">Recommended</div>
+                            <div class="eval-best-move" id="eval-best-human">—</div>
                         </div>
-                        <div class="eval-value" id="eval-value">0.00</div>
+                        <div class="eval-bar-col">
+                            <div class="eval-bar-track">
+                                <div class="eval-bar-fill" id="eval-bar-fill"></div>
+                            </div>
+                        </div>
+                        <div class="eval-col eval-col-ai">
+                            <div class="eval-side-label">AI (○)</div>
+                            <div class="eval-pct" id="eval-pct-ai">50%</div>
+                            <div class="eval-best-label">AI will play</div>
+                            <div class="eval-best-move" id="eval-best-ai">—</div>
+                        </div>
                     </div>
-                    <div class="top-moves" id="top-moves">
-                        <div class="top-moves-label">Top Moves</div>
+
+                    <!-- Score margin -->
+                    <div class="score-margin-section">
+                        <div class="metric-row">
+                            <span class="metric-label">Score Margin</span>
+                            <span class="metric-value" id="score-margin-value">0.00</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">MCTS Simulations</span>
+                            <span class="metric-value" id="sims-value">—</span>
+                        </div>
+                    </div>
+
+                    <!-- Ownership map -->
+                    <div class="ownership-section">
+                        <div class="section-label">Sub-Board Ownership</div>
+                        <div class="ownership-grid" id="ownership-grid">
+                            <!-- 9 ownership cells -->
+                        </div>
+                        <div class="ownership-legend">
+                            <span class="own-leg-item"><span class="own-dot human"></span>Human</span>
+                            <span class="own-leg-item"><span class="own-dot contested"></span>Contested</span>
+                            <span class="own-leg-item"><span class="own-dot ai"></span>AI</span>
+                        </div>
+                    </div>
+
+                    <!-- Top moves -->
+                    <div class="top-moves-section">
+                        <div class="section-label">Top Moves</div>
+                        <div class="top-moves-header">
+                            <span class="tm-col tm-col-move">Move</span>
+                            <span class="tm-col tm-col-bar">Visits</span>
+                            <span class="tm-col tm-col-q">Q-Value</span>
+                            <span class="tm-col tm-col-prior">Prior</span>
+                        </div>
+                        <div class="top-moves-list" id="top-moves-list">
+                            <!-- populated by JS -->
+                        </div>
                     </div>
                 </div>
             </div>
@@ -68,7 +131,7 @@
 
         <!-- Footer -->
         <footer class="footer">
-            <p>Trained via pure self-play with MCTS · 192ch × 10 blocks · Anti-draw value shaping</p>
+            <p>Trained via self-play with MCTS · 192ch × 10 blocks · 200 iterations on Mac Mini M2</p>
         </footer>
     </div>
 

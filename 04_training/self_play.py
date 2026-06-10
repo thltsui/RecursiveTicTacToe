@@ -84,6 +84,7 @@ def play_self_play_game(
     Returns:
         Complete GameRecord with all targets computed.
     """
+    import random
     from importlib import import_module
     board_mod = import_module('01_game.board')
     rules_mod = import_module('01_game.rules')
@@ -112,7 +113,13 @@ def play_self_play_game(
         policy_tgt = compute_policy_target(visits, len(legal_moves))
 
         # Select move with temperature schedule
-        temp = 1.0 if state.move_count < temperature_threshold else 0.0
+        # Base exploration: 1.25 (flatter than 1.0)
+        temp = 1.25 if state.move_count < temperature_threshold else 0.0
+        
+        # Occasional random spike (10% chance) to force deep exploration
+        if random.random() < 0.10:
+            temp = 2.5
+            
         move = select_move(root, temperature=temp)
 
         # Record this move
@@ -256,7 +263,7 @@ def play_vs_random_game(
 
     for rec in move_records:
         cp = rec.current_player
-        rec.value_target = float(winner * cp) if winner != 0 else 0.0
+        rec.value_target = float(winner * cp) if winner != 0 else -0.5
         own_wins = np.sum(final_results == cp)
         opp_wins = np.sum(final_results == -cp)
         rec.score_target = float(own_wins - opp_wins) / 9.0

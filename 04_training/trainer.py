@@ -46,6 +46,7 @@ class TrainingConfig:
     """
     # Self-play
     games_per_iteration:   int   = 100
+    games_vs_random_per_iteration: int = 0
     num_simulations:       int   = 800
     temperature_threshold: int   = 30
     self_play_with_best:   bool  = True
@@ -77,7 +78,8 @@ class TrainingConfig:
     checkpoint_dir:        str   = 'checkpoints/'
     checkpoint_every_n:    int   = 10          # save checkpoint every N iterations regardless of arena
     device:                str   = 'cpu'       # device for MCTS self-play
-    train_device:          str   = ''          # device for gradient updates (default: same as device)
+    train_device:          str   = 'cpu'       # device for gradient updates (default: same as device)
+    max_iterations:        int   = 1000        # Default to a large number
 
     # Network
     channels:              int   = 128
@@ -150,7 +152,7 @@ def train(config: TrainingConfig) -> None:
 
     # Auto-resume from latest checkpoint
     import glob
-    checkpoints = sorted(glob.glob(os.path.join(config.checkpoint_dir, '*.pt')))
+    checkpoints = sorted(glob.glob(os.path.join(config.checkpoint_dir, 'checkpoint_iter*.pt')))
     iteration = 0
     if checkpoints:
         latest_cp = checkpoints[-1]
@@ -180,6 +182,14 @@ def train(config: TrainingConfig) -> None:
         last_arena_win_rate = float(best_meta.get('elo', last_arena_win_rate))
         print(f"  Loaded best model from: {best_checkpoint_path}")
 
+    # Migrate optimizer state tensors to train_device to avoid CPU/MPS mismatch.
+    # Checkpoints save optimizer state on CPU, but training runs on train_device.
+    if train_device != config.device:
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if isinstance(v, torch.Tensor):
+                    state[k] = v.to(train_device)
+
     print(f"Starting training with config:")
     print(f"  MCTS device: {config.device} | Train device: {train_device}")
     print(f"  Network: {config.channels}ch x {config.num_blocks}blocks")
@@ -187,7 +197,7 @@ def train(config: TrainingConfig) -> None:
     print(f"  Parameters: {num_params:,}")
     print()
     try:
-        while True:
+        while iteration < config.max_iterations:
             iteration += 1
             iter_start = time.time()
 
@@ -196,11 +206,12 @@ def train(config: TrainingConfig) -> None:
             # increased Dirichlet noise / temperature exploration.
             network.eval()
             num_self = config.games_per_iteration
-            print(f"[Iter {iteration}] Self-play: {num_self}x pure self-play")
+            num_random = config.games_vs_random_per_iteration
+            print(f"[Iter {iteration}] Self-play: {num_self}x pure self-play, {num_random}x vs random")
             records = generate_mixed_batch(
                 network=network,
                 num_self_play=num_self,
-                num_vs_random=0,
+                num_vs_random=num_random,
                 num_simulations=config.num_simulations,
                 temperature_threshold=config.temperature_threshold,
                 device=config.device,
@@ -491,6 +502,12 @@ def load_checkpoint(
 
     if optimizer is not None and 'optimizer_state_dict' in checkpoint:
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        # Move optimizer state to correct device
+        device = next(network.parameters()).device
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if isinstance(v, torch.Tensor):
+                    state[k] = v.to(device)
 
     return {
         'iteration': checkpoint.get('iteration', 0),

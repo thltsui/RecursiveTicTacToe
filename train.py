@@ -29,11 +29,12 @@ def main():
         channels=192,
         num_blocks=10,
 
-        # Self-play — 100% pure self-play with anti-draw value shaping
+        # Self-play — Mix of pure self-play and vs random opponent
         device='cpu',
-        games_per_iteration=20,
+        games_per_iteration=14,
+        games_vs_random_per_iteration=6,
         num_simulations=200,
-        temperature_threshold=30,  # AlphaZero standard: temp=1 for first 30 moves
+        temperature_threshold=81,  # Maximize exploration throughout the game
         self_play_with_best=False,
 
         # Training
@@ -59,9 +60,11 @@ def main():
         # Buffer
         buffer_capacity=200_000,
 
-        # Checkpointing — fresh start with pure self-play
-        checkpoint_dir='checkpoints/large_v3_pure_self_play/',
+        # Checkpointing — fresh start with mixed curriculum
+        checkpoint_dir='checkpoints/large_v5_fixed_mcts/',
         checkpoint_every_n=5,
+        train_device='mps',
+        max_iterations=200,
         seed=42,
     )
 

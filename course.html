@@ -332,7 +332,7 @@ pre.code-block::-webkit-scrollbar-thumb { background: var(--border); border-radi
   <div class="header-title">
     <span>&#9670;</span> Ultimate TTT &mdash; AlphaZero Course
   </div>
-  <div class="header-right">15 episodes &middot; ~65 min read</div>
+  <div class="header-right">21 episodes &middot; ~75 min read</div>
 </header>
 
 <!-- ========== PROGRESS BAR ========== -->
@@ -377,6 +377,13 @@ pre.code-block::-webkit-scrollbar-thumb { background: var(--border); border-radi
   </div>
 
   <div class="nav-group">
+    <div class="nav-group-label">Debugging Stagnation</div>
+    <a class="nav-link" data-target="ep15"><span class="ep-num">15</span> The Stagnation Trap</a>
+    <a class="nav-link" data-target="ep16"><span class="ep-num">16</span> Mixed Curriculum</a>
+    <a class="nav-link" data-target="ep17"><span class="ep-num">17</span> The MCTS Bug</a>
+  </div>
+
+  <div class="nav-group">
     <div class="nav-group-label">Evaluation</div>
     <a class="nav-link" data-target="ep18"><span class="ep-num">18</span> Elo Rating</a>
     <a class="nav-link" data-target="ep19"><span class="ep-num">19</span> Arena Evaluation</a>
@@ -385,6 +392,11 @@ pre.code-block::-webkit-scrollbar-thumb { background: var(--border); border-radi
   <div class="nav-group">
     <div class="nav-group-label">Deployment</div>
     <a class="nav-link" data-target="ep20"><span class="ep-num">20</span> Web Dashboard</a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-label">Training at Scale</div>
+    <a class="nav-link" data-target="ep21"><span class="ep-num">21</span> The 200-Iteration Run</a>
   </div>
 
 </nav>
@@ -1424,6 +1436,107 @@ Mapping to 9x9 spatial grid:
 </div>
 
 <!-- ============================================================ -->
+<!--  EPISODE 15                                                    -->
+<!-- ============================================================ -->
+<div class="episode" id="ep15">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">15</div>
+    <div class="ep-info">
+      <h2>The Stagnation Trap</h2>
+      <div class="ep-tagline">When pure self-play leads to a defensive Nash Equilibrium</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+      <h3>The Draw Echo Chamber</h3>
+      <p>During our initial training runs, the AI quickly learned how to block the opponent's winning lines. However, because both sides of the self-play were identical, they eventually settled into a highly defensive Nash Equilibrium where neither side would take risks.</p>
+      <p>The result? <strong>100% of self-play games ended in a draw.</strong></p>
+
+      <h3>Value Head Collapse</h3>
+      <p>Because the network was constantly filling the replay buffer with drawn games (target value <code>0.0</code> or our anti-draw penalty <code>-0.5</code>), the neural network's Value Head suffered a mathematical collapse. It had never seen a <code>+1.0</code> win signal, so it learned to predict exactly <code>-0.5</code> for every single board state, effectively losing the concept of "winning."</p>
+
+      <div class="callout warning">
+        <div class="callout-label">Failure Mode</div>
+        If your training buffer doesn't contain a diverse set of outcomes (wins, losses, draws), the neural network will overfit to the dominant outcome and stop exploring.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 16                                                    -->
+<!-- ============================================================ -->
+<div class="episode" id="ep16">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">16</div>
+    <div class="ep-info">
+      <h2>Breaking the Echo Chamber</h2>
+      <div class="ep-tagline">Using a mixed curriculum and high temperature to force exploration</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+      <h3>The Mixed Curriculum</h3>
+      <p>To inject <code>+1.0</code> win signals back into the buffer, we shattered the self-play mirror. We updated the training loop to generate a <strong>mixed batch</strong>: 70% pure self-play, and 30% games against a purely random opponent.</p>
+      
+      <p>Because the random opponent makes terrible moves, the network was forced to recognize and capitalize on winning opportunities, flooding the buffer with positive targets.</p>
+
+      <h3>Hyper-Exploration</h3>
+      <p>We also drastically increased the MCTS exploration parameters during self-play:</p>
+      <ol>
+        <li><strong>Flattened Distribution:</strong> Increased the base temperature from <code>1.0</code> to <code>1.25</code>.</li>
+        <li><strong>Continuous Exploration:</strong> Extended the <code>temperature_threshold</code> to the maximum game length (81 moves), meaning the AI never plays deterministically in self-play.</li>
+        <li><strong>Random Spikes:</strong> Added a 10% chance for the temperature to spike to <code>2.5</code> on any given turn, forcing the agent down highly unconventional lines.</li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 17                                                    -->
+<!-- ============================================================ -->
+<div class="episode" id="ep17">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">17</div>
+    <div class="ep-info">
+      <h2>Training the "Perfect Loser"</h2>
+      <div class="ep-tagline">A fatal one-character bug in the MCTS backup phase</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+      <h3>The Shocking Arena Result</h3>
+      <p>Even after implementing the mixed curriculum, our AI was only winning <strong>4%</strong> of its games against a random player. A truly random AI against a random player should win ~50% of the time. Our AI was actively and systematically choosing <em>losing</em> moves.</p>
+
+      <h3>The Inverted Backup Bug</h3>
+      <p>A rigorous dry-run of the MCTS logic revealed a catastrophic, one-character bug in <code>node.py</code> during the backpropagation phase.</p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">03_mcts/node.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">def</span> <span class="fn">backup</span>(self, value: float) -> <span class="ty">None</span>:
+    <span class="cm"># ...</span>
+    <span class="cm"># BUG: The value is from THIS node's perspective.</span>
+    <span class="cm"># To the parent (the opponent), the value should be SUBTRACTED.</span>
+    <span class="cm"># We were doing + value instead of - value!</span>
+    
+    <span class="op">-</span> self.parent.W[move] = self.parent.W.get(move, <span class="nu">0.0</span>) <span class="op">+</span> value
+    <span class="op">+</span> self.parent.W[move] = self.parent.W.get(move, <span class="nu">0.0</span>) <span class="op">-</span> value</pre>
+      </div>
+
+      <p>Because we added the value instead of subtracting it, the parent node (the opposing player) was striving to maximize their opponent's win probability. The MCTS was performing millions of simulations to find the optimal sequence of moves to <strong>lose the game</strong>.</p>
+
+      <div class="callout key">
+        <div class="callout-label">The Triumph</div>
+        After fixing the sign inversion and wiping the poisoned replay buffer, the new <code>v5</code> training run skyrocketed to an <strong>88% win rate</strong> against the random baseline in just 45 iterations. The agent had finally learned to play AlphaZero!
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
 <!--  EPISODE 18                                                    -->
 <!-- ============================================================ -->
 <div class="episode" id="ep18">
@@ -1660,6 +1773,162 @@ uv run python web_app/app.py
 
 <span class="cm"># Open in browser</span>
 open http://localhost:<span class="nu">5001</span></pre>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 21                                                    -->
+<!-- ============================================================ -->
+<div class="episode" id="ep21">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">21</div>
+    <div class="ep-info">
+      <h2>The 200-Iteration Run &mdash; Training at Scale</h2>
+      <div class="ep-tagline">200 iterations, 4,000 games, 181K positions &mdash; from 88% to 92% win rate</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>The Goal</h3>
+      <p>After fixing the MCTS sign-inversion bug (Episode 17), the <code>v5</code> model quickly reached 88% against the random baseline. But was this a genuine ceiling, or just the beginning? We set an ambitious target: <strong>200 full training iterations</strong> to push the model as far as possible on a Mac Mini M2.</p>
+
+      <p>Each iteration involves:</p>
+      <ol>
+        <li><strong>Self-play:</strong> 14 pure self-play games + 6 games vs. random (mixed curriculum)</li>
+        <li><strong>Training:</strong> 100 gradient steps on batches of 256 positions</li>
+        <li><strong>Arena evaluation:</strong> Every 10 iterations, 50 games against the random baseline</li>
+        <li><strong>Checkpointing:</strong> Every 5 iterations, save the full model state</li>
+      </ol>
+
+      <h3>The MPS Device Mismatch Bug</h3>
+      <p>Before we could begin the long run, we hit a <strong>device mismatch crash</strong> when using Apple Silicon's MPS accelerator for batched training. The root cause was subtle:</p>
+
+      <div class="diagram"><span class="hl">The Device Mismatch Problem</span>
+
+   <span class="hl2">Checkpoint Loading</span>              <span class="hl3">Training Loop</span>
+   ┌──────────────────┐            ┌──────────────────┐
+   │ Network  → CPU   │            │ Network  → MPS   │
+   │ Optimizer → CPU  │  ── but ─→ │ Optimizer → ???   │
+   └──────────────────┘            └──────────────────┘
+
+   The Adam optimizer stores internal state (exp_avg, exp_avg_sq)
+   on the <span class="hl5">same device as the parameters when state was created</span>.
+
+   Loading a CPU checkpoint → optimizer state on CPU
+   Moving network to MPS   → parameters on MPS, but optimizer state still CPU
+   optimizer.step()        → <span class="hl5">RuntimeError: two devices, mps:0 and cpu!</span></div>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">04_training/trainer.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="cm"># Fix: Migrate optimizer state tensors to train_device after loading checkpoint</span>
+<span class="kw">if</span> train_device != config.device:
+    <span class="kw">for</span> state <span class="kw">in</span> optimizer.state.values():
+        <span class="kw">for</span> k, v <span class="kw">in</span> state.items():
+            <span class="kw">if</span> <span class="fn">isinstance</span>(v, torch.Tensor):
+                state[k] = v.to(train_device)</pre>
+      </div>
+
+      <div class="callout insight">
+        <div class="callout-label">Lesson Learned</div>
+        PyTorch's <code>model.to(device)</code> moves model parameters but does <em>not</em> move the optimizer's internal momentum buffers. When mixing devices (CPU for MCTS, MPS for training), you must explicitly migrate optimizer state after loading checkpoints.
+      </div>
+
+      <h3>Arena Results: The Full Trajectory</h3>
+      <p>With the device fix in place, the training ran uninterrupted for <strong>~65 hours</strong> across 200 iterations. Arena evaluations every 10 iterations tell the story:</p>
+
+      <table class="styled-table">
+        <tr><th>Iteration</th><th>Win Rate</th><th>W / L / D</th><th>Total Loss</th><th>Phase</th></tr>
+        <tr><td>10</td><td><strong>88%</strong></td><td>44 / 2 / 4</td><td>2.131</td><td>Rapid learning</td></tr>
+        <tr><td>20</td><td>84%</td><td>42 / 1 / 7</td><td>1.791</td><td>Stabilizing</td></tr>
+        <tr><td>40</td><td>70%</td><td>35 / 5 / 10</td><td>1.773</td><td>Exploration dip</td></tr>
+        <tr><td>50</td><td>86%</td><td>43 / 3 / 4</td><td>1.777</td><td>Recovery + LR decay</td></tr>
+        <tr><td>90</td><td style="color: var(--green); font-weight: 700;">94%</td><td>47 / 0 / 3</td><td>1.697</td><td>Peak &mdash; zero losses</td></tr>
+        <tr><td>120</td><td><strong>90%</strong></td><td>45 / 0 / 5</td><td>1.620</td><td>Sustained strength</td></tr>
+        <tr><td>130</td><td><strong>92%</strong></td><td>46 / 1 / 3</td><td>1.636</td><td>Near-peak</td></tr>
+        <tr><td>180</td><td><strong>90%</strong></td><td>45 / 1 / 4</td><td>1.615</td><td>Late training</td></tr>
+        <tr><td>200</td><td style="color: var(--green); font-weight: 700;">92%</td><td>46 / 2 / 2</td><td>1.635</td><td>Final checkpoint</td></tr>
+      </table>
+
+      <h3>Three Phases of Learning</h3>
+      <p>The 200-iteration trajectory reveals three distinct phases:</p>
+
+      <div class="diagram"><span class="hl">Win Rate Trajectory (200 Iterations)</span>
+
+   100% ┤
+    94% ┤                             <span class="hl2">★ Peak (Iter 90)</span>
+    92% ┤                                          <span class="hl3">★ Final (Iter 200)</span>
+    88% ┤  <span class="hl4">★</span>
+    86% ┤  ┆          <span class="hl4">★</span>                 ╭──────────────────────────╮
+    84% ┤  ┆  <span class="hl4">★  ★</span>    ┆                 │ <span class="hl2">Phase 2: Mastery</span>         │
+    82% ┤  ┆  ┆  ┆    ┆                 │ Zero losses, 90-94% WR   │
+    80% ┤  ┆  ┆  ┆    ┆                 ╰──────────────────────────╯
+    78% ┤  ┆  ┆  ┆    ┆
+        ┤  ┆  ┆  ┆    ┆
+    70% ┤  ┆  ┆  ┆ <span class="hl5">★</span>  ┆   ← <span class="hl5">Exploration dip (Iter 40)</span>
+        ┤  ┆  ┆  ┆ ┆  ┆
+        └──┴──┴──┴─┴──┴──────────────────────────────────────────
+        10 20 30 40 50  60  70  80  90  ... 130 ... 180 200
+
+   <span class="hl4">Phase 1 (1-50):</span>   Rapid learning → exploration dip → recovery
+   <span class="hl2">Phase 2 (50-130):</span>  Peak performance, zero-loss games
+   <span class="hl3">Phase 3 (130-200):</span> Stable plateau at 88-92%, losses fully converged</div>
+
+      <h3>Loss Convergence</h3>
+      <p>The multi-task loss curve tells an equally compelling story. The biggest gains came in the first 50 iterations, with steady refinement continuing through iteration 200:</p>
+
+      <table class="styled-table">
+        <tr><th>Iteration</th><th>Total Loss</th><th>Policy</th><th>Value</th><th>Buffer Size</th><th>LR</th></tr>
+        <tr><td>1</td><td>3.113</td><td>1.914</td><td>0.588</td><td>957</td><td>0.001</td></tr>
+        <tr><td>20</td><td>1.791</td><td>1.457</td><td>0.081</td><td>18,297</td><td>0.001</td></tr>
+        <tr><td>50</td><td>1.777</td><td>1.428</td><td>0.087</td><td>45,750</td><td>0.001</td></tr>
+        <tr><td>100</td><td>1.721</td><td>1.370</td><td>0.094</td><td>91,065</td><td>0.0005</td></tr>
+        <tr><td>150</td><td>1.655</td><td>1.312</td><td>0.092</td><td>136,447</td><td>0.00025</td></tr>
+        <tr><td>200</td><td>1.635</td><td>1.286</td><td>0.095</td><td>181,479</td><td>0.000125</td></tr>
+      </table>
+
+      <p>Key observations:</p>
+      <ul>
+        <li><strong>Policy loss</strong> dropped from 1.91 → 1.29 (33% reduction), meaning MCTS visit distributions became significantly sharper and more predictable.</li>
+        <li><strong>Value loss</strong> converged near 0.09, indicating stable win/loss prediction accuracy.</li>
+        <li><strong>Learning rate decay</strong> (halving every 50 iterations after iter 50) was critical for preventing overshoot during the refinement phase.</li>
+        <li>The <strong>replay buffer</strong> grew to 181K positions from 4,000 self-play games, providing rich training signal diversity.</li>
+      </ul>
+
+      <h3>Hardware &amp; Infrastructure</h3>
+
+      <div class="diagram"><span class="hl">Dual-Device Training Architecture</span>
+
+   ┌─────────────────────┐     ┌─────────────────────┐
+   │     <span class="hl2">CPU</span>               │     │     <span class="hl3">MPS (Apple GPU)</span>    │
+   │                     │     │                     │
+   │  MCTS Self-Play     │     │  Batched Training   │
+   │  ├─ 200 sims/move   │     │  ├─ B=256           │
+   │  ├─ batch size 1    │     │  ├─ 100 steps/iter  │
+   │  └─ sequential      │ ──→ │  └─ parallel tensor │
+   │                     │     │      operations     │
+   └─────────────────────┘     └─────────────────────┘
+
+   Self-play is CPU-bound (sequential tree traversal, batch-size 1).
+   Training is GPU-bound (large matrix multiplies, batch-size 256).
+   Using the right device for each phase = <span class="hl4">maximum throughput</span>.</div>
+
+      <div class="callout key">
+        <div class="callout-label">Final Stats</div>
+        <strong>Network:</strong> 192 channels × 10 residual blocks (6.78M parameters) &bull;
+        <strong>Training:</strong> 200 iterations, ~65 hours on Mac Mini M2 &bull;
+        <strong>Games:</strong> 4,000 self-play games generating 181,479 unique positions &bull;
+        <strong>Final Win Rate:</strong> 92% vs. random (46W/2L/2D) &bull;
+        <strong>Peak Win Rate:</strong> 94% at Iteration 90 (47W/0L/3D) &mdash; zero losses!
+      </div>
+
+      <div class="callout insight">
+        <div class="callout-label">What 92% Actually Means</div>
+        A random player wins ~50% against another random player. Our AlphaZero agent wins 92%. But more telling than the win rate is the <em>nature</em> of the remaining 8%: almost all draws, with only 2 losses in 50 games. The agent has learned not just how to win, but how to <strong>never lose</strong> &mdash; the hallmark of true strategic understanding.
       </div>
 
     </div>

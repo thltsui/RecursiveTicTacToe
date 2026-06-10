@@ -165,9 +165,10 @@ class MCTSNode:
         if self.parent is not None and self.move_from_parent is not None:
             move = self.move_from_parent
             self.parent.N[move] = self.parent.N.get(move, 0) + 1
-            self.parent.W[move] = self.parent.W.get(move, 0.0) + value
+            # The value is from THIS node's perspective.
+            # To the parent, the value of this move is -value.
+            self.parent.W[move] = self.parent.W.get(move, 0.0) - value
             n = self.parent.N[move]
-            self.parent.W[move]
             self.parent.Q[move] = self.parent.W[move] / n
 
             # Negate value when going up — parent's perspective is opposite

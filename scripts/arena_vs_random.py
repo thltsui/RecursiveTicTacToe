@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Evaluate best_model.pt against a purely random opponent (no MCTS, just sampling)."""
 
-import sys, os, time, random
+import sys, os, time, random, argparse
 
-sys.path.insert(0, os.path.dirname(__file__))
+# Ensure project root is on path regardless of where script is run from
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, PROJECT_ROOT)
 
 import torch
 from importlib import import_module
@@ -49,14 +51,29 @@ def play_vs_random(network, num_simulations, device, verbose=False):
 
 
 def main():
-    num_games = 50
-    num_sims = 200
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--checkpoint', type=str, default=None)
+    parser.add_argument('--games', type=int, default=50)
+    parser.add_argument('--sims', type=int, default=200)
+    args = parser.parse_args()
+
+    num_games = args.games
+    num_sims = args.sims
     device = 'cpu'
 
-    # Try new fixed model first, then fall back to old
-    checkpoint_path = 'checkpoints/large_v2_fixed/best_model.pt'
-    if not os.path.exists(checkpoint_path):
-        checkpoint_path = 'checkpoints/best_model.pt'
+    # Resolve checkpoint path
+    if args.checkpoint and os.path.exists(args.checkpoint):
+        checkpoint_path = args.checkpoint
+    else:
+        v3_dir = os.path.join(PROJECT_ROOT, 'checkpoints/large_v3_pure_self_play')
+        if os.path.isdir(v3_dir):
+            ckpts = sorted([f for f in os.listdir(v3_dir) if f.endswith('.pt') and 'checkpoint' in f])
+            checkpoint_path = os.path.join(v3_dir, ckpts[-1]) if ckpts else None
+        else:
+            checkpoint_path = None
+
+    if not checkpoint_path:
+        print("ERROR: No checkpoint found."); sys.exit(1)
 
     print(f"Loading {checkpoint_path}...", flush=True)
     cp = torch.load(checkpoint_path, weights_only=False, map_location=device)
