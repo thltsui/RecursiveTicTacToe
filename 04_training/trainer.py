@@ -88,6 +88,9 @@ class TrainingConfig:
     # Reproducibility
     seed:                  int   = 42
 
+    # Value bootstrap
+    pretrain_checkpoint:   str   = ''   # path to pretrain_value.pt; loaded at iter 0 if set
+
 
 def train(config: TrainingConfig) -> None:
     """Main training loop. Runs indefinitely until interrupted.
@@ -189,6 +192,15 @@ def train(config: TrainingConfig) -> None:
             for k, v in state.items():
                 if isinstance(v, torch.Tensor):
                     state[k] = v.to(train_device)
+
+    # Load pretrain checkpoint at cold start (only if no checkpoint was auto-resumed)
+    if config.pretrain_checkpoint and iteration == 0:
+        if os.path.exists(config.pretrain_checkpoint):
+            load_checkpoint(config.pretrain_checkpoint, network)
+            best_network_state = clone_state_dict(network.state_dict())
+            print(f"  Loaded pretrain checkpoint: {config.pretrain_checkpoint}")
+        else:
+            print(f"  WARNING: pretrain_checkpoint not found: {config.pretrain_checkpoint}")
 
     print(f"Starting training with config:")
     print(f"  MCTS device: {config.device} | Train device: {train_device}")

@@ -138,6 +138,7 @@ def ownership_loss(
 def compute_total_loss(
     network_output: 'NetworkOutput',
     batch: 'TrainingBatch',
+    lambda_policy: float = 1.0,
     lambda_value: float = 3.0,
     lambda_score: float = 1.0,
     lambda_ownership: float = 1.0,
@@ -145,7 +146,7 @@ def compute_total_loss(
 ) -> LossBreakdown:
     """Compute the complete weighted multi-task loss.
 
-    L_total = L_policy
+    L_total = lambda_policy * L_policy
             + lambda_value     * L_value
             + lambda_score     * L_score
             + lambda_ownership * L_ownership
@@ -154,9 +155,11 @@ def compute_total_loss(
     Args:
         network_output: Forward pass output from the network.
         batch: Training batch with targets.
-        lambda_value: Weight for value loss. Default: 1.0.
-        lambda_score: Weight for score loss. Default: 0.5.
-        lambda_ownership: Weight for ownership loss. Default: 0.5.
+        lambda_policy: Weight for policy loss. Default: 1.0.
+            Pass 0.0 during value pretraining to suppress policy learning.
+        lambda_value: Weight for value loss. Default: 3.0.
+        lambda_score: Weight for score loss. Default: 1.0.
+        lambda_ownership: Weight for ownership loss. Default: 1.0.
         lambda_opp: Weight for opponent policy loss. Default: 0.15.
 
     Returns:
@@ -174,7 +177,7 @@ def compute_total_loss(
         network_output.opp_policy_logits, batch.opp_policy_targets, opp_mask
     )
 
-    total = (l_policy
+    total = (lambda_policy * l_policy
              + lambda_value * l_value
              + lambda_score * l_score
              + lambda_ownership * l_ownership

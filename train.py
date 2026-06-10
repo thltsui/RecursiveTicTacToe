@@ -63,6 +63,7 @@ def main():
         # Checkpointing — fresh start with mixed curriculum
         checkpoint_dir='checkpoints/large_v5_fixed_mcts/',
         checkpoint_every_n=5,
+        pretrain_checkpoint='checkpoints/pretrain_value.pt',
         train_device='mps',
         max_iterations=200,
         seed=42,
