@@ -62,6 +62,8 @@ def main():
         # Checkpointing — fresh start with pure self-play
         checkpoint_dir='checkpoints/large_v3_pure_self_play/',
         checkpoint_every_n=5,
+        pretrain_checkpoint='checkpoints/pretrain_value.pt',
+        train_device='mps',
         seed=42,
     )
 

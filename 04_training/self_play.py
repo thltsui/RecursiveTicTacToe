@@ -169,6 +169,79 @@ def play_self_play_game(
     )
 
 
+def play_random_vs_random_game() -> GameRecord:
+    """Play one complete game with both sides sampling uniformly from legal moves.
+
+    No network, no MCTS. Both players pick moves uniformly at random.
+    Every position from both players is recorded.
+
+    Policy targets are set to the uniform distribution over legal moves.
+    These are informational only — the pretrain script sets lambda_policy=0.0
+    so they do not contribute to the pretrain loss.
+
+    opp_policy_target and opp_legal_mask are left as zeros (same convention
+    as play_vs_random_game — the loss ignores them via zero mask).
+
+    Returns:
+        Complete GameRecord with value/score/ownership targets.
+    """
+    import random
+    from importlib import import_module
+    board_mod = import_module('01_game.board')
+    rules_mod = import_module('01_game.rules')
+
+    create_initial_state = board_mod.create_initial_state
+    encode_state = board_mod.encode_state
+    get_legal_moves = rules_mod.get_legal_moves
+    get_legal_move_mask = rules_mod.get_legal_move_mask
+
+    state = create_initial_state()
+    move_records: list[MoveRecord] = []
+
+    while not state.is_terminal:
+        legal_moves = get_legal_moves(state)
+        move = random.choice(legal_moves)
+
+        # Uniform policy target over legal moves
+        legal_mask = get_legal_move_mask(state)
+        n_legal = float(legal_mask.sum().item())
+        policy_tgt = legal_mask.float() / n_legal  # uniform over legal moves
+
+        record = MoveRecord(
+            state_tensor=encode_state(state),
+            policy_target=policy_tgt,
+            opp_policy_target=torch.zeros(81),
+            opp_legal_mask=torch.zeros(81),
+            legal_mask=legal_mask,
+            current_player=state.current_player,
+        )
+        move_records.append(record)
+
+        state = rules_mod.apply_move(state, move)
+
+    # Compute value/score/ownership targets
+    winner = state.winner if state.winner is not None else 0
+    final_results = state.sub_board_results.copy()
+
+    for rec in move_records:
+        cp = rec.current_player
+        rec.value_target = float(winner * cp) if winner != 0 else -0.5
+        own_wins = np.sum(final_results == cp)
+        opp_wins = np.sum(final_results == -cp)
+        rec.score_target = float(own_wins - opp_wins) / 9.0
+        rec.ownership_target = torch.tensor(
+            [(1.0 if final_results[i] == cp else 0.0) for i in range(9)],
+            dtype=torch.float32
+        )
+
+    return GameRecord(
+        moves=move_records,
+        winner=winner,
+        game_length=len(move_records),
+        final_sub_board_results=final_results,
+    )
+
+
 def play_vs_random_game(
     network: 'UltimateTTTNetwork',
     num_simulations: int = 200,

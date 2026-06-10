@@ -86,6 +86,9 @@ class TrainingConfig:
     # Reproducibility
     seed:                  int   = 42
 
+    # Value bootstrap
+    pretrain_checkpoint:   str   = ''   # path to pretrain_value.pt; loaded at iter 0 if set
+
 
 def train(config: TrainingConfig) -> None:
     """Main training loop. Runs indefinitely until interrupted.
@@ -179,6 +182,15 @@ def train(config: TrainingConfig) -> None:
         best_network_state = clone_state_dict(best_net.state_dict())
         last_arena_win_rate = float(best_meta.get('elo', last_arena_win_rate))
         print(f"  Loaded best model from: {best_checkpoint_path}")
+
+    # Load pretrain checkpoint at cold start (only if no checkpoint was auto-resumed)
+    if config.pretrain_checkpoint and iteration == 0:
+        if os.path.exists(config.pretrain_checkpoint):
+            load_checkpoint(config.pretrain_checkpoint, network)
+            best_network_state = clone_state_dict(network.state_dict())
+            print(f"  Loaded pretrain checkpoint: {config.pretrain_checkpoint}")
+        else:
+            print(f"  WARNING: pretrain_checkpoint not found: {config.pretrain_checkpoint}")
 
     print(f"Starting training with config:")
     print(f"  MCTS device: {config.device} | Train device: {train_device}")
