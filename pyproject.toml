@@ -1,0 +1,28 @@
+# Ultimate Tic-Tac-Toe AlphaZero
+# https://docs.astral.sh/uv/
+
+[project]
+name = "ultimate-ttt-alphazero"
+version = "0.1.0"
+description = "AlphaZero self-play agent for Ultimate Tic-Tac-Toe"
+requires-python = ">=3.11"
+dependencies = [
+    "torch>=2.0.0",
+    "numpy>=1.24.0",
+    "matplotlib>=3.7.0",
+    "tqdm>=4.65.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.3.0",
+]
+web = [
+    "flask>=3.0.0",
+    "flask-cors>=4.0.0",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.3.0",
+]
