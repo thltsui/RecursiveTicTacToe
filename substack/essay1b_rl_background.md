@@ -14,35 +14,37 @@ Everything in this essay — every algorithm, every design choice — is a diffe
 
 ## 2. The Bellman Equation
 
-Before choosing actions, we need a way to evaluate positions. Define the *value* of a state s as the expected total future reward an agent will collect from that state onwards, under some policy π:
+Before choosing actions, we need a way to evaluate positions. To do this, we first need a concept of a **policy** (denoted by π). You can think of a policy as a mental model or a strategy: it dictates how the agent approaches the game and what moves it is likely to play in any given situation.
 
-V^π(s) = E_π [ r_t + γ·r_{t+1} + γ²·r_{t+2} + … | s_t = s ]
+With a strategy in mind, we can define the *value* of a state s. The value, denoted Vπ(s), is the expected total reward the agent will collect if it starts from state s and plays out the rest of the game strictly following its mental model π. Mathematically, it is an expectation (E) over the sum of future rewards:
+
+Vπ(s) = Eπ [ rₜ + γ·rₜ₊₁ + γ²·rₜ₊₂ + … | sₜ = s ]
 
 The parameter γ ∈ (0, 1) is the discount factor. Each reward is multiplied by γ raised to the number of steps in the future it occurs. This produces a discounted sum that we can write compactly as:
 
-V^π(s) = E_π [ Σ_{k=0}^{∞} γ^k · r_{t+k} | s_t = s ]
+Vπ(s) = Eπ [ Σ γᵏ · rₜ₊ₖ | sₜ = s ]
 
 Why does γ appear? There are three interlocking reasons, each more compelling than the last.
 
-The first is purely mathematical: for the infinite sum to converge at all, we need the terms to shrink. If γ = 1 and rewards can be nonzero, the sum diverges. γ < 1 ensures convergence.
+The first is mathematical convergence. For games that could theoretically go on forever, an infinite sum of rewards would diverge if γ = 1. By setting γ < 1, we ensure the math behaves. However, in games like Ultimate Tic-Tac-Toe, the sum actually doesn't go to infinity because the game eventually ends. So why do we still use it?
 
-The second is philosophical: rewards far in the future should be worth less than immediate rewards. This captures the economic intuition of time preference, but it also encodes something deeper — uncertainty. A reward ten steps away is contingent on ten more transitions going as expected. Discounting by γ at each step is equivalent to assuming the game might end at any moment with probability 1 − γ.
+This brings us to the second, more philosophical reason: uncertainty. Even though the game is finite, a reward ten steps away is contingent on ten more transitions going exactly as expected. Discounting by γ ensures that we focus on securing a reward (like winning the game) earlier rather than later. It is equivalent to assuming the game might suddenly end or slip out of our control at any moment with probability 1 − γ.
 
-The third reason is the one that gives the Bellman equation its power. Consider the optimisation problem we actually want to solve: find the policy π* that maximises E[Σ γ^t r_t]. This optimisation has a remarkable recursive structure. Any suffix of an optimal trajectory must itself be optimal — otherwise we could improve the overall trajectory by substituting a better suffix. This is Bellman's principle of optimality, and it implies that V* satisfies:
+The third reason is the one that gives the Bellman equation its power. Consider the optimisation problem we actually want to solve: find the optimal policy π* that maximises E[ Σ γᵗ rₜ ]. This optimisation has a remarkable recursive structure. Any suffix of an optimal trajectory must itself be optimal — otherwise we could improve the overall trajectory by substituting a better suffix. This is Bellman's principle of optimality, and it implies that V* satisfies:
 
-V*(s) = max_a [ r(s,a) + γ · E[V*(s')] ]
+V*(s) = maxₐ [ r(s,a) + γ · E[ V*(s') ] ]
 
 This is the Bellman optimality equation. It says: the value of the best action from s equals the immediate reward plus the discounted value of wherever that action takes you.
 
-What's the mathematical justification for this recursive form? It falls out directly from the law of iterated expectations — what probabilists call the tower property. If G_t = r_t + γ·r_{t+1} + γ²·r_{t+2} + … denotes the return from time t, then:
+What's the mathematical justification for this recursive form? It falls out directly from the law of iterated expectations — what probabilists call the tower property. If Gₜ = rₜ + γ·rₜ₊₁ + γ²·rₜ₊₂ + … denotes the return from time t, then:
 
-G_t = r_t + γ · G_{t+1}
+Gₜ = rₜ + γ · Gₜ₊₁
 
 Taking expectations:
 
-V(s_t) = E[r_t + γ · G_{t+1} | s_t] = E[r_t | s_t] + γ · E[E[G_{t+1} | s_{t+1}] | s_t] = E[r_t | s_t] + γ · E[V(s_{t+1}) | s_t]
+V(sₜ) = E[ rₜ + γ · Gₜ₊₁ | sₜ ] = E[ rₜ | sₜ ] + γ · E[ E[ Gₜ₊₁ | sₜ₊₁ ] | sₜ ] = E[ rₜ | sₜ ] + γ · E[ V(sₜ₊₁) | sₜ ]
 
-The inner expectation E[G_{t+1} | s_{t+1}] is just V(s_{t+1}) by definition; the tower property lets us collapse it. The Bellman equation is, in this sense, nothing more than the law of iterated expectations applied to discounted sums.
+The inner expectation E[ Gₜ₊₁ | sₜ₊₁ ] is just V(sₜ₊₁) by definition; the tower property lets us collapse it. The Bellman equation is, in this sense, nothing more than the law of iterated expectations applied to discounted sums.
 
 Now — why does γ < 1 guarantee a *unique* solution to this equation? This is where the mathematics becomes beautiful, and where Brian Christian and Tom Griffiths, in *Algorithms to Live By*, make an observation that is easy to miss. The Bellman equation is not just a recursive formula — it is a *fixed-point equation* for the value function. We are looking for a V* such that applying the Bellman backup operator T* leaves it unchanged: T*V* = V*.
 
@@ -82,13 +84,13 @@ The simplest strategy for the credit-assignment problem is to stop worrying abou
 
 Define the return from time t as the discounted sum of all future rewards:
 
-G_t = r_t + γ·r_{t+1} + γ²·r_{t+2} + … + γ^{T-t}·r_T
+Gₜ = rₜ + γ·rₜ₊₁ + γ²·rₜ₊₂ + … + γᵀ⁻ᵗ·r_{T}
 
-where T is the final timestep. After the game ends, we know G_t exactly for every timestep t. We then update our value estimate at each state visited:
+where T is the final timestep. After the game ends, we know Gₜ exactly for every timestep t. We then update our value estimate at each state visited:
 
-V(s_t) ← V(s_t) + α · [G_t − V(s_t)]
+V(sₜ) ← V(sₜ) + α · [Gₜ − V(sₜ)]
 
-This is an exponentially weighted running average: each update moves V(s_t) a fraction α toward the observed return.
+This is an exponentially weighted running average: each update moves V(sₜ) a fraction α toward the observed return.
 
 Monte Carlo estimation is *unbiased*: because G_t is the actual return from the actual game, not an estimate of an estimate, we are moving toward the true value on average. The cost is *variance*: the return G_t depends on every subsequent action and every subsequent environment transition. In a forty-move game, G_t is a function of thirty-nine more steps, each of which could have gone differently. This makes individual estimates noisy, and convergence slow.
 
@@ -98,23 +100,23 @@ The deeper problem is credit assignment. Every state in the game gets updated, b
 
 Temporal Difference learning makes a different bet. Instead of waiting for the game to end, it bootstraps: it uses its *current estimate* of future value to construct a training target.
 
-After observing a transition s_t → a_t → r_t → s_{t+1}, the TD update is:
+After observing a transition sₜ → aₜ → rₜ → sₜ₊₁, the TD update is:
 
-δ_t = r_t + γ · V(s_{t+1}) − V(s_t)
+δₜ = rₜ + γ · V(sₜ₊₁) − V(sₜ)
 
-This quantity δ_t is the *TD error* — the gap between what we expected (V(s_t)) and what we observed plus what we now expect from the next state (r_t + γ·V(s_{t+1})). We update:
+This quantity δₜ is the *TD error* — the gap between what we expected (V(sₜ)) and what we observed plus what we now expect from the next state (rₜ + γ·V(sₜ₊₁)). We update:
 
-V(s_t) ← V(s_t) + α · δ_t
+V(sₜ) ← V(sₜ) + α · δₜ
 
-TD learning can update after every single step, not just at the end of a game. Its update target is *biased* — it uses V(s_{t+1}), which is itself an estimate, not the true value — but it is much lower variance than Monte Carlo, because the target only looks one step into the future.
+TD learning can update after every single step, not just at the end of a game. Its update target is *biased* — it uses V(sₜ₊₁), which is itself an estimate, not the true value — but it is much lower variance than Monte Carlo, because the target only looks one step into the future.
 
 There is a subtlety here worth pausing on. At the start of training, we initialise V(s) = 0 for every state. Consider a game where all rewards are zero except upon entering the terminal state, where the winner receives +1. Now follow the TD update rule:
 
-On the first game, every transition has r_t = 0 and V(s_{t+1}) = 0. So δ_t = 0 + γ·0 − 0 = 0. The update is zero. Nothing is learned from any non-terminal state.
+On the first game, every transition has rₜ = 0 and V(sₜ₊₁) = 0. So δₜ = 0 + γ·0 − 0 = 0. The update is zero. Nothing is learned from any non-terminal state.
 
-For the final winning move from state s_{T-1} into the terminal state s_T, the reward is r_T = 1. Since s_T is terminal, it has no future value: V(s_T) = 0. The TD error for the state just before the end is δ_{T-1} = 1 + 0 − 0 = 1. Thus, the state *just prior* to winning gets updated: V(s_{T-1}) moves from 0 to something positive.
+For the final winning move from state sₜ₋₁ into the terminal state sₜ, the reward is rₜ = 1. Since sₜ is terminal, it has no future value: V(sₜ) = 0. The TD error for the state just before the end is δₜ₋₁ = 1 + 0 − 0 = 1. Thus, the state *just prior* to winning gets updated: V(sₜ₋₁) moves from 0 to something positive.
 
-On the second game, if the agent happens to visit the same s_{T-1} again, it will find V(s_{T-1}) > 0, and the state just before *that* will now have a nonzero target. The signal is propagating backward — but only one step per game.
+On the second game, if the agent happens to visit the same sₜ₋₁ again, it will find V(sₜ₋₁) > 0, and the state just before *that* will now have a nonzero target. The signal is propagating backward — but only one step per game.
 
 In theory, over many games, this "correction wave" propagates from terminal states backward through the game tree, eventually giving every state an accurate value estimate. In practice, for Ultimate Tic-Tac-Toe, the wave never arrives.
 
@@ -132,9 +134,9 @@ Rather than estimating V(s), it is often more useful to estimate Q(s, a) — the
 
 Q-learning updates Q directly:
 
-Q(s_t, a_t) ← Q(s_t, a_t) + α · [r_t + γ · max_{a'} Q(s_{t+1}, a') − Q(s_t, a_t)]
+Q(sₜ, aₜ) ← Q(sₜ, aₜ) + α · [ rₜ + γ · maxₐ' Q(sₜ₊₁, a') − Q(sₜ, aₜ) ]
 
-The target r_t + γ · max_{a'} Q(s_{t+1}, a') is the "greedy" TD target: it uses the best Q-value available at the next state, regardless of what action the agent actually took. This makes Q-learning an *off-policy* algorithm — it learns the optimal policy even while following a different (e.g. exploratory) one.
+The target rₜ + γ · maxₐ' Q(sₜ₊₁, a') is the "greedy" TD target: it uses the best Q-value available at the next state, regardless of what action the agent actually took. This makes Q-learning an *off-policy* algorithm — it learns the optimal policy even while following a different (e.g. exploratory) one.
 
 Q-learning enjoys strong convergence guarantees in the tabular case. But it inherits exactly the same scaling problem as tabular V-learning: storing one number per (state, action) pair is impossible when the state space is 3^81.
 
@@ -144,7 +146,7 @@ The fix is to replace the Q-table with a neural network Q(s, a; θ), parameteris
 
 Training proceeds by minimising the loss:
 
-L(θ) = E[ (r + γ · max_{a'} Q(s', a'; θ⁻) − Q(s, a; θ))² ]
+L(θ) = E[ (r + γ · maxₐ' Q(s', a'; θ⁻) − Q(s, a; θ))² ]
 
 where θ⁻ are the weights of a *target network* — a periodically frozen copy of the main network. The target network stabilises training: without it, the target itself changes every gradient step, leading to oscillation or divergence.
 
@@ -156,41 +158,41 @@ For UTTT, DQN is a natural starting point. But it has a limitation: it is purely
 
 ## 8. Policy Gradients and REINFORCE
 
-An alternative approach is to directly parameterise the policy — the function that maps states to actions. Instead of learning V or Q and deriving a policy from them, we learn π_θ(a|s) directly: a probability distribution over actions given the current state.
+An alternative approach is to directly parameterise the policy — the function that maps states to actions. Instead of learning V or Q and deriving a policy from them, we learn πθ(a|s) directly: a probability distribution over actions given the current state.
 
 The objective is simple to state: maximise expected return.
 
-J(θ) = E_{π_θ} [G_0] = E_{π_θ} [ Σ_{t=0}^{T} γ^t · r_t ]
+J(θ) = Eπθ [ G₀ ] = Eπθ [ Σ γᵗ · rₜ ]
 
-J(θ) is the expected discounted total reward when the agent follows policy π_θ from the start. We want to find θ* = argmax_θ J(θ).
+J(θ) is the expected discounted total reward when the agent follows policy πθ from the start. We want to find θ* = argmax_θ J(θ).
 
 To maximise J(θ), we need its gradient with respect to θ. The policy gradient theorem gives:
 
-∇_θ J(θ) = E_{π_θ} [ Σ_t ∇_θ log π_θ(a_t | s_t) · G_t ]
+∇θ J(θ) = Eπθ [ Σ ∇θ log πθ(aₜ | sₜ) · Gₜ ]
 
-The key object is ∇_θ log π_θ(a_t | s_t) — the gradient of the log-probability of the action taken, with respect to the policy parameters. This is called the *score function*. The intuition: if G_t is large (the game went well), we want to increase the log-probability of the actions we took. If G_t is small, we want to decrease them. The score function tells us which direction to push θ.
+The key object is ∇θ log πθ(aₜ | sₜ) — the gradient of the log-probability of the action taken, with respect to the policy parameters. This is called the *score function*. The intuition: if Gₜ is large (the game went well), we want to increase the log-probability of the actions we took. If Gₜ is small, we want to decrease them. The score function tells us which direction to push θ.
 
-Why log π rather than π? Because ∇_θ log π_θ = ∇_θ π_θ / π_θ. When we take an expectation over actions (which are sampled from π_θ), the π_θ in the denominator cancels the π_θ in the sampling measure, giving a clean gradient estimate that we can compute from samples.
+Why log π rather than π? Because ∇θ log πθ = ∇θ πθ / πθ. When we take an expectation over actions (which are sampled from πθ), the πθ in the denominator cancels the πθ in the sampling measure, giving a clean gradient estimate that we can compute from samples.
 
-REINFORCE is the algorithm that implements this directly: play a complete game, compute G_t for every step, and update θ by gradient ascent. It is Monte Carlo policy gradient — it requires the full return G_t, not an estimate.
+REINFORCE is the algorithm that implements this directly: play a complete game, compute Gₜ for every step, and update θ by gradient ascent. It is Monte Carlo policy gradient — it requires the full return Gₜ, not an estimate.
 
-REINFORCE is unbiased: since G_t is the actual return from the actual game, the gradient estimate is correct on average. The cost, again, is variance. G_t is influenced by everything that happens after time t, including many things unrelated to the quality of action a_t. The signal is noisy, convergence is slow, and large numbers of games are required.
+REINFORCE is unbiased: since Gₜ is the actual return from the actual game, the gradient estimate is correct on average. The cost, again, is variance. Gₜ is influenced by everything that happens after time t, including many things unrelated to the quality of action aₜ. The signal is noisy, convergence is slow, and large numbers of games are required.
 
 ## 9. Actor-Critic, GAE, and PPO
 
 The actor-critic architecture is to policy gradients what TD is to Monte Carlo: it replaces the full return G_t with a bootstrapped estimate, reducing variance at the cost of some bias.
 
-The *actor* is the policy π_θ(a|s). The *critic* is a value function V_φ(s), parameterised separately, whose job is to estimate how good each state is. (As a sneak peek: the AlphaZero network we will build later in this series is an actor-critic architecture! It uses a single shared neural network body that splits into two "heads" — one predicting the value, and the other predicting the move probabilities.)
+The *actor* is the policy πθ(a|s). The *critic* is a value function Vφ(s), parameterised separately, whose job is to estimate how good each state is. (As a sneak peek: the AlphaZero network we will build later in this series is an actor-critic architecture! It uses a single shared neural network body that splits into two "heads" — one predicting the value, and the other predicting the move probabilities.)
 
-Instead of weighting the score function by G_t, actor-critic weights it by the *advantage*:
+Instead of weighting the score function by Gₜ, actor-critic weights it by the *advantage*:
 
-Â_t = G_t − V_φ(s_t)
+Âₜ = Gₜ − Vφ(sₜ)
 
-The advantage says: was this action better or worse than what we expected from this state? Subtracting V_φ(s_t) does not change the expected gradient (V_φ(s_t) is independent of the actions taken from s_t), but it dramatically reduces variance by removing the component of G_t that is due to the quality of the state rather than the quality of the action.
+The advantage says: was this action better or worse than what we expected from this state? Subtracting Vφ(sₜ) does not change the expected gradient (Vφ(sₜ) is independent of the actions taken from sₜ), but it dramatically reduces variance by removing the component of Gₜ that is due to the quality of the state rather than the quality of the action.
 
 In the simplest one-step actor-critic, the advantage is estimated by the TD error:
 
-Â_t ≈ δ_t = r_t + γ · V_φ(s_{t+1}) − V_φ(s_t)
+Âₜ ≈ δₜ = rₜ + γ · Vφ(sₜ₊₁) − Vφ(sₜ)
 
 This mirrors exactly the MC/TD trade-off we saw for value functions: REINFORCE is MC policy gradient, actor-critic is TD policy gradient.
 
@@ -198,11 +200,11 @@ This mirrors exactly the MC/TD trade-off we saw for value functions: REINFORCE i
 
 Between the one-step TD estimate (low variance, high bias) and the full Monte Carlo return (high variance, low bias) is a continuum parameterised by λ ∈ [0, 1]:
 
-Â_t^{GAE(γ,λ)} = Σ_{l=0}^{∞} (γλ)^l · δ_{t+l}
+Âₜ(GAE) = Σ (γλ)ˡ · δₜ₊ₗ
 
-where δ_{t+l} = r_{t+l} + γ·V(s_{t+l+1}) − V(s_{t+l}) is the TD error at step t+l.
+where δₜ₊ₗ = rₜ₊ₗ + γ·V(sₜ₊ₗ₊₁) − V(sₜ₊ₗ) is the TD error at step t+l.
 
-When λ = 0, this collapses to the one-step TD error δ_t. When λ = 1, it becomes the full Monte Carlo return minus the baseline. Any λ ∈ (0,1) interpolates smoothly between the two. GAE is now standard in high-performance RL systems.
+When λ = 0, this collapses to the one-step TD error δₜ. When λ = 1, it becomes the full Monte Carlo return minus the baseline. Any λ ∈ (0,1) interpolates smoothly between the two. GAE is now standard in high-performance RL systems.
 
 **Proximal Policy Optimisation (PPO)**
 
@@ -210,11 +212,11 @@ A practical problem with policy gradient methods is that gradient steps can be t
 
 Define the probability ratio:
 
-r_t(θ) = π_θ(a_t | s_t) / π_{θ_old}(a_t | s_t)
+rₜ(θ) = πθ(aₜ | sₜ) / πθ_old(aₜ | sₜ)
 
-If r_t > 1, the new policy is more likely to take action a_t than the old one was. PPO's clipped objective is:
+If rₜ > 1, the new policy is more likely to take action aₜ than the old one was. PPO's clipped objective is:
 
-L^{CLIP}(θ) = E_t [ min( r_t(θ) · Â_t, clip(r_t(θ), 1−ε, 1+ε) · Â_t ) ]
+L(CLIP)(θ) = E [ min( rₜ(θ) · Âₜ, clip(rₜ(θ), 1−ε, 1+ε) · Âₜ ) ]
 
 The min of the unclipped and clipped versions ensures that the policy is only pushed in a beneficial direction, and never too far. If an action was advantageous (Â_t > 0), the objective rewards increasing its probability — but only up to a factor of 1+ε. If an action was disadvantageous, the objective penalises increasing its probability — but cannot benefit from decreasing it past 1−ε.
 
