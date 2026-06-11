@@ -1,6 +1,6 @@
 # Essay 1b: The Reinforcement Learning Landscape
 
-*How do you teach a program to play a game it has never seen before — without telling it what good play looks like? This essay builds up the reinforcement learning framework that makes this possible, from the Bellman equation to policy gradients, tracing a single thread: the credit-assignment problem.*
+How do you teach a program to play a game it has never seen before — without telling it what good play looks like? This essay builds up the reinforcement learning framework that makes this possible, from the Bellman equation to policy gradients, tracing a single thread: the credit-assignment problem.
 
 ---
 
@@ -14,9 +14,9 @@ Everything in this essay — every algorithm, every design choice — is a diffe
 
 ## 2. The Bellman Equation
 
-Before choosing actions, we need a way to evaluate positions. To do this, we first need a concept of a **policy** (denoted by π). You can think of a policy as a mental model or a strategy: it dictates how the agent approaches the game and what moves it is likely to play in any given situation.
+Before choosing actions, we need a way to evaluate positions. To do this, we first need a concept of a policy (denoted by π). You can think of a policy as a mental model or a strategy: it dictates how the agent approaches the game and what moves it is likely to play in any given situation.
 
-With a strategy in mind, we can define the *value* of a state s. The value, denoted Vπ(s), is the expected total reward the agent will collect if it starts from state s and plays out the rest of the game strictly following its mental model π. Mathematically, it is an expectation (E) over the sum of future rewards:
+With a strategy in mind, we can define the value of a state s. The value, denoted Vπ(s), is the expected total reward the agent will collect if it starts from state s and plays out the rest of the game strictly following its mental model π. Mathematically, it is an expectation (E) over the sum of future rewards:
 
 Vπ(s) = Eπ [ rₜ + γ·rₜ₊₁ + γ²·rₜ₊₂ + … | sₜ = s ]
 
@@ -46,7 +46,7 @@ V(sₜ) = E[ rₜ + γ · Gₜ₊₁ | sₜ ] = E[ rₜ | sₜ ] + γ · E[ E[ G
 
 The inner expectation E[ Gₜ₊₁ | sₜ₊₁ ] is just V(sₜ₊₁) by definition; the tower property lets us collapse it. The Bellman equation is, in this sense, nothing more than the law of iterated expectations applied to discounted sums.
 
-Now — why does γ < 1 guarantee a *unique* solution to this equation? This is where the mathematics becomes beautiful, and where Brian Christian and Tom Griffiths, in *Algorithms to Live By*, make an observation that is easy to miss. The Bellman equation is not just a recursive formula — it is a *fixed-point equation* for the value function. We are looking for a V* such that applying the Bellman backup operator T* leaves it unchanged: T*V* = V*.
+Now — why does γ < 1 guarantee a unique solution to this equation? This is where the mathematics becomes beautiful, and where Brian Christian and Tom Griffiths, in Algorithms to Live By, make an observation that is easy to miss. The Bellman equation is not just a recursive formula — it is a fixed-point equation for the value function. We are looking for a V* such that applying the Bellman backup operator T* leaves it unchanged: T*V* = V*.
 
 The discount factor γ is what makes T* a contraction mapping. For any two value functions V and U, the maximum difference after one application of T* is:
 
@@ -62,13 +62,13 @@ There is a third, deeper reason that we will meet in Essay 1c. The Gittins index
 
 Given the value function, we need to decide how to store and compute it. There are two dimensions to this decision.
 
-**What to estimate: V or Q?**
+What to estimate: V or Q?
 
-V(s) is the value of a state: a single number saying how good it is to be in state s. If we store one number per state, V is a *vector* of length |S| — one entry per state.
+V(s) is the value of a state: a single number saying how good it is to be in state s. If we store one number per state, V is a vector of length |S| — one entry per state.
 
-Q(s, a) is the value of taking action a from state s. It is a *matrix* of dimensions |S| × |A| — one entry per (state, action) pair. Q is more expensive to store, but it is more directly useful: to choose the best action, you read off the row for your current state and take the column with the highest value, without needing a model of the environment.
+Q(s, a) is the value of taking action a from state s. It is a matrix of dimensions |S| × |A| — one entry per (state, action) pair. Q is more expensive to store, but it is more directly useful: to choose the best action, you read off the row for your current state and take the column with the highest value, without needing a model of the environment.
 
-**How much of the game to observe before updating?**
+How much of the game to observe before updating?
 
 This is the deeper design choice, and it determines the entire character of the algorithm. You are in state s_t. You have taken some actions. At some point you must use your observations to update your value estimates. The question is: how much of the future do you observe before making that update?
 
@@ -92,39 +92,39 @@ V(sₜ) ← V(sₜ) + α · [Gₜ − V(sₜ)]
 
 This is an exponentially weighted running average: each update moves V(sₜ) a fraction α toward the observed return.
 
-Monte Carlo estimation is *unbiased*: because G_t is the actual return from the actual game, not an estimate of an estimate, we are moving toward the true value on average. The cost is *variance*: the return G_t depends on every subsequent action and every subsequent environment transition. In a forty-move game, G_t is a function of thirty-nine more steps, each of which could have gone differently. This makes individual estimates noisy, and convergence slow.
+Monte Carlo estimation is unbiased: because G_t is the actual return from the actual game, not an estimate of an estimate, we are moving toward the true value on average. The cost is variance: the return G_t depends on every subsequent action and every subsequent environment transition. In a forty-move game, G_t is a function of thirty-nine more steps, each of which could have gone differently. This makes individual estimates noisy, and convergence slow.
 
 The deeper problem is credit assignment. Every state in the game gets updated, but only the terminal state receives a nonzero reward directly. The update for the first move is driven entirely by the cumulative return G_0 — a noisy signal that reflects the quality of thirty-nine more decisions. The first move is not well-served by this.
 
 ## 5. TD Learning: Learn from One Step
 
-Temporal Difference learning makes a different bet. Instead of waiting for the game to end, it bootstraps: it uses its *current estimate* of future value to construct a training target.
+Temporal Difference learning makes a different bet. Instead of waiting for the game to end, it bootstraps: it uses its current estimate of future value to construct a training target.
 
 After observing a transition sₜ → aₜ → rₜ → sₜ₊₁, the TD update is:
 
 δₜ = rₜ + γ · V(sₜ₊₁) − V(sₜ)
 
-This quantity δₜ is the *TD error* — the gap between what we expected (V(sₜ)) and what we observed plus what we now expect from the next state (rₜ + γ·V(sₜ₊₁)). We update:
+This quantity δₜ is the TD error — the gap between what we expected (V(sₜ)) and what we observed plus what we now expect from the next state (rₜ + γ·V(sₜ₊₁)). We update:
 
 V(sₜ) ← V(sₜ) + α · δₜ
 
-TD learning can update after every single step, not just at the end of a game. Its update target is *biased* — it uses V(sₜ₊₁), which is itself an estimate, not the true value — but it is much lower variance than Monte Carlo, because the target only looks one step into the future.
+TD learning can update after every single step, not just at the end of a game. Its update target is biased — it uses V(sₜ₊₁), which is itself an estimate, not the true value — but it is much lower variance than Monte Carlo, because the target only looks one step into the future.
 
 There is a subtlety here worth pausing on. At the start of training, we initialise V(s) = 0 for every state. Consider a game where all rewards are zero except upon entering the terminal state, where the winner receives +1. Now follow the TD update rule:
 
 On the first game, every transition has rₜ = 0 and V(sₜ₊₁) = 0. So δₜ = 0 + γ·0 − 0 = 0. The update is zero. Nothing is learned from any non-terminal state.
 
-For the final winning move from state sₜ₋₁ into the terminal state sₜ, the reward is rₜ = 1. Since sₜ is terminal, it has no future value: V(sₜ) = 0. The TD error for the state just before the end is δₜ₋₁ = 1 + 0 − 0 = 1. Thus, the state *just prior* to winning gets updated: V(sₜ₋₁) moves from 0 to something positive.
+For the final winning move from state sₜ₋₁ into the terminal state sₜ, the reward is rₜ = 1. Since sₜ is terminal, it has no future value: V(sₜ) = 0. The TD error for the state just before the end is δₜ₋₁ = 1 + 0 − 0 = 1. Thus, the state just prior to winning gets updated: V(sₜ₋₁) moves from 0 to something positive.
 
-On the second game, if the agent happens to visit the same sₜ₋₁ again, it will find V(sₜ₋₁) > 0, and the state just before *that* will now have a nonzero target. The signal is propagating backward — but only one step per game.
+On the second game, if the agent happens to visit the same sₜ₋₁ again, it will find V(sₜ₋₁) > 0, and the state just before that will now have a nonzero target. The signal is propagating backward — but only one step per game.
 
 In theory, over many games, this "correction wave" propagates from terminal states backward through the game tree, eventually giving every state an accurate value estimate. In practice, for Ultimate Tic-Tac-Toe, the wave never arrives.
 
-The problem is the 3^81 state space. There are roughly 4.4 × 10^38 possible board configurations. Every game traces a path through this enormous space, and — crucially — almost every game traces a *different* path. The probability that any two games share a non-terminal state is vanishingly small. The correction learned from one game has nowhere to propagate to.
+The problem is the 3^81 state space. There are roughly 4.4 × 10^38 possible board configurations. Every game traces a path through this enormous space, and — crucially — almost every game traces a different path. The probability that any two games share a non-terminal state is vanishingly small. The correction learned from one game has nowhere to propagate to.
 
 This is not a problem that more games will fix. You could play a billion games and still have visited a negligible fraction of the 3^81 possible states. The tabular approach — storing one number per state — is simply not viable for a game of this scale.
 
-What is needed is a way to *generalise*: to update the value of one state and have that update automatically propagate to similar states. This is what neural networks provide. A neural network parameterises V(s) as a function of the state — shared weights mean that an update for one state influences the estimated values of all similar states. In a grid game like Ultimate Tic-Tac-Toe, *Convolutional Neural Networks (CNNs)* are especially powerful for this: a win threat in the top-left corner is structurally identical to a win threat in the bottom-right corner, and convolutions allow the network to share that learned knowledge across the entire board. The correction wave becomes, in effect, a gradient that flows through the entire function class at once. We will return to this in later essays. For now, the lesson is: tabular TD learning is theoretically clean but practically unusable at scale.
+What is needed is a way to generalise: to update the value of one state and have that update automatically propagate to similar states. This is what neural networks provide. A neural network parameterises V(s) as a function of the state — shared weights mean that an update for one state influences the estimated values of all similar states. In a grid game like Ultimate Tic-Tac-Toe, Convolutional Neural Networks (CNNs) are especially powerful for this: a win threat in the top-left corner is structurally identical to a win threat in the bottom-right corner, and convolutions allow the network to share that learned knowledge across the entire board. The correction wave becomes, in effect, a gradient that flows through the entire function class at once. We will return to this in later essays. For now, the lesson is: tabular TD learning is theoretically clean but practically unusable at scale.
 
 <!-- Figure: figures/fig4_tensor_channels.png — "The 7-channel tensor encoding of a UTTT position after 5 moves (O to move). Each channel is a 9×9 binary plane. The encoding is always from the current player's perspective: Ch 0 shows O's pieces, Ch 1 shows X's pieces, Ch 2 highlights the sub-board O must play in, Ch 4 shows the sub-board X has already won, and Ch 6 is all-ones because it is O's turn." -->
 
@@ -136,7 +136,7 @@ Q-learning updates Q directly:
 
 Q(sₜ, aₜ) ← Q(sₜ, aₜ) + α · [ rₜ + γ · maxₐ' Q(sₜ₊₁, a') − Q(sₜ, aₜ) ]
 
-The target rₜ + γ · maxₐ' Q(sₜ₊₁, a') is the "greedy" TD target: it uses the best Q-value available at the next state, regardless of what action the agent actually took. This makes Q-learning an *off-policy* algorithm — it learns the optimal policy even while following a different (e.g. exploratory) one.
+The target rₜ + γ · maxₐ' Q(sₜ₊₁, a') is the "greedy" TD target: it uses the best Q-value available at the next state, regardless of what action the agent actually took. This makes Q-learning an off-policy algorithm — it learns the optimal policy even while following a different (e.g. exploratory) one.
 
 Q-learning enjoys strong convergence guarantees in the tabular case. But it inherits exactly the same scaling problem as tabular V-learning: storing one number per (state, action) pair is impossible when the state space is 3^81.
 
@@ -148,13 +148,13 @@ Training proceeds by minimising the loss:
 
 L(θ) = E[ (r + γ · maxₐ' Q(s', a'; θ⁻) − Q(s, a; θ))² ]
 
-where θ⁻ are the weights of a *target network* — a periodically frozen copy of the main network. The target network stabilises training: without it, the target itself changes every gradient step, leading to oscillation or divergence.
+where θ⁻ are the weights of a target network — a periodically frozen copy of the main network. The target network stabilises training: without it, the target itself changes every gradient step, leading to oscillation or divergence.
 
-DQN also uses an *experience replay buffer*: past transitions (s, a, r, s') are stored and sampled randomly for training. Random sampling breaks the temporal correlations in sequential game data, which would otherwise bias the gradient estimates.
+DQN also uses an experience replay buffer: past transitions (s, a, r, s') are stored and sampled randomly for training. Random sampling breaks the temporal correlations in sequential game data, which would otherwise bias the gradient estimates.
 
 This combination — neural function approximation + target network + experience replay — is what made deep reinforcement learning practical. DeepMind's DQN paper (2015) demonstrated superhuman performance on dozens of Atari games using only raw pixels as input.
 
-For UTTT, DQN is a natural starting point. But it has a limitation: it is purely value-based. It estimates how good each action is, and acts greedily. It says nothing about *how* to choose actions when many are similarly valued, or how to reason about the structure of the action space.
+For UTTT, DQN is a natural starting point. But it has a limitation: it is purely value-based. It estimates how good each action is, and acts greedily. It says nothing about how to choose actions when many are similarly valued, or how to reason about the structure of the action space.
 
 ## 8. Policy Gradients and REINFORCE
 
@@ -170,7 +170,7 @@ To maximise J(θ), we need its gradient with respect to θ. The policy gradient 
 
 ∇θ J(θ) = Eπθ [ Σ ∇θ log πθ(aₜ | sₜ) · Gₜ ]
 
-The key object is ∇θ log πθ(aₜ | sₜ) — the gradient of the log-probability of the action taken, with respect to the policy parameters. This is called the *score function*. The intuition: if Gₜ is large (the game went well), we want to increase the log-probability of the actions we took. If Gₜ is small, we want to decrease them. The score function tells us which direction to push θ.
+The key object is ∇θ log πθ(aₜ | sₜ) — the gradient of the log-probability of the action taken, with respect to the policy parameters. This is called the score function. The intuition: if Gₜ is large (the game went well), we want to increase the log-probability of the actions we took. If Gₜ is small, we want to decrease them. The score function tells us which direction to push θ.
 
 Why log π rather than π? Because ∇θ log πθ = ∇θ πθ / πθ. When we take an expectation over actions (which are sampled from πθ), the πθ in the denominator cancels the πθ in the sampling measure, giving a clean gradient estimate that we can compute from samples.
 
@@ -182,9 +182,9 @@ REINFORCE is unbiased: since Gₜ is the actual return from the actual game, the
 
 The actor-critic architecture is to policy gradients what TD is to Monte Carlo: it replaces the full return G_t with a bootstrapped estimate, reducing variance at the cost of some bias.
 
-The *actor* is the policy πθ(a|s). The *critic* is a value function Vφ(s), parameterised separately, whose job is to estimate how good each state is. (As a sneak peek: the AlphaZero network we will build later in this series is an actor-critic architecture! It uses a single shared neural network body that splits into two "heads" — one predicting the value, and the other predicting the move probabilities.)
+The actor is the policy πθ(a|s). The critic is a value function Vφ(s), parameterised separately, whose job is to estimate how good each state is. (As a sneak peek: the AlphaZero network we will build later in this series is an actor-critic architecture! It uses a single shared neural network body that splits into two "heads" — one predicting the value, and the other predicting the move probabilities.)
 
-Instead of weighting the score function by Gₜ, actor-critic weights it by the *advantage*:
+Instead of weighting the score function by Gₜ, actor-critic weights it by the advantage:
 
 Âₜ = Gₜ − Vφ(sₜ)
 
@@ -196,7 +196,7 @@ In the simplest one-step actor-critic, the advantage is estimated by the TD erro
 
 This mirrors exactly the MC/TD trade-off we saw for value functions: REINFORCE is MC policy gradient, actor-critic is TD policy gradient.
 
-**Generalised Advantage Estimation (GAE)**
+Generalised Advantage Estimation (GAE)
 
 Between the one-step TD estimate (low variance, high bias) and the full Monte Carlo return (high variance, low bias) is a continuum parameterised by λ ∈ [0, 1]:
 
@@ -206,7 +206,7 @@ where δₜ₊ₗ = rₜ₊ₗ + γ·V(sₜ₊ₗ₊₁) − V(sₜ₊ₗ) is th
 
 When λ = 0, this collapses to the one-step TD error δₜ. When λ = 1, it becomes the full Monte Carlo return minus the baseline. Any λ ∈ (0,1) interpolates smoothly between the two. GAE is now standard in high-performance RL systems.
 
-**Proximal Policy Optimisation (PPO)**
+Proximal Policy Optimisation (PPO)
 
 A practical problem with policy gradient methods is that gradient steps can be too large, accidentally destroying a good policy. PPO addresses this by constraining how much the policy can change in a single update.
 
@@ -222,11 +222,11 @@ The min of the unclipped and clipped versions ensures that the policy is only pu
 
 PPO is the most widely used policy gradient algorithm in practice. It is the backbone of RLHF.
 
-**RLHF: Reinforcement Learning from Human Feedback**
+RLHF: Reinforcement Learning from Human Feedback
 
 A brief note on the connection to large language models. Reinforcement Learning from Human Feedback (RLHF) is the technique that took GPT-3 to ChatGPT and is responsible for much of the "helpful, harmless, honest" behaviour of modern AI assistants.
 
-The pipeline works in three stages. First, a language model is pretrained on text in the usual way. Second, human raters compare pairs of model outputs and express preferences ("response A is better than response B"). These preferences are used to train a *reward model* — a separate neural network that predicts which responses humans will prefer. Third, the language model is fine-tuned with PPO, using the reward model as the reward signal. The policy (the language model) is optimised to generate outputs that score highly according to the reward model — which, by construction, reflects human preferences.
+The pipeline works in three stages. First, a language model is pretrained on text in the usual way. Second, human raters compare pairs of model outputs and express preferences ("response A is better than response B"). These preferences are used to train a reward model — a separate neural network that predicts which responses humans will prefer. Third, the language model is fine-tuned with PPO, using the reward model as the reward signal. The policy (the language model) is optimised to generate outputs that score highly according to the reward model — which, by construction, reflects human preferences.
 
 The actor is the language model. The critic is the reward model. The advantage is estimated from the critic's scores. The clipping in PPO prevents the fine-tuned model from drifting too far from the pretrained model, preserving its broad language abilities while nudging it toward human-preferred behaviour.
 
@@ -238,7 +238,7 @@ We now have a rich toolkit: TD learning, Q-learning, DQN, REINFORCE, actor-criti
 
 None of them, applied naively to Ultimate Tic-Tac-Toe, produces a strong player.
 
-The issue is that all of these methods are fundamentally reactive: they learn to evaluate or act upon states they have encountered. They do not, by themselves, engage in *deliberate search*. A DQN agent chooses the action with the highest Q-value; it does not look ahead three moves and ask whether that action will create an unavoidable threat. A policy gradient agent samples an action from π_θ(a|s); it does not simulate the opponent's best response.
+The issue is that all of these methods are fundamentally reactive: they learn to evaluate or act upon states they have encountered. They do not, by themselves, engage in deliberate search. A DQN agent chooses the action with the highest Q-value; it does not look ahead three moves and ask whether that action will create an unavoidable threat. A policy gradient agent samples an action from π_θ(a|s); it does not simulate the opponent's best response.
 
 In games with deep tactical structure — games where the right move depends on reading opponent responses several turns ahead — this is a serious limitation. What we need is a way to combine learned value estimates with explicit forward search.
 
@@ -246,8 +246,8 @@ That combination is Monte Carlo Tree Search — and it is the subject of the nex
 
 ---
 
-*Next: Essay 1c introduces the multi-armed bandit problem and shows how the explore/exploit trade-off that governs slot machines also governs tree search. The UCB formula that solves the bandit problem turns out to be the key ingredient that makes MCTS both principled and practical.*
+Next: Essay 1c introduces the multi-armed bandit problem and shows how the explore/exploit trade-off that governs slot machines also governs tree search. The UCB formula that solves the bandit problem turns out to be the key ingredient that makes MCTS both principled and practical.
 
 ---
 
-*Code: [Notebook 1 — The UTTT Game Engine](https://colab.research.google.com/github/thltsui/UlltimateTicTacToe/blob/Substack/substack/notebook_1_uttt_engine.ipynb) shows the full 7-channel `encode_state()` function in action, including a live demonstration of each channel's content for a real game position.*
+Code: [Notebook 1 — The UTTT Game Engine](https://colab.research.google.com/github/thltsui/UlltimateTicTacToe/blob/Substack/substack/notebook_1_uttt_engine.ipynb) shows the full 7-channel `encode_state()` function in action, including a live demonstration of each channel's content for a real game position.

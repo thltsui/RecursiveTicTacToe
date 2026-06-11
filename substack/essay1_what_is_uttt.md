@@ -40,7 +40,7 @@ There is a related but distinct quantity worth distinguishing. The *game tree* c
 
 What makes Ultimate Tic-Tac-Toe genuinely strategic — and not just tactically complex — is the tension between local and global objectives.
 
-Winning a local board is not automatically good. If you win a local board by placing your mark in a square that sends your opponent to a local board where they can win *their* local board, you may have hurt yourself. Conversely, sometimes the right move is to *lose* a local board intentionally — not to hand your opponent free choice, but because every cell available to them in their new board would send you somewhere favourable on your next turn. You sacrifice the local contest to constrain where your opponent can redirect you, gaining global flexibility one move later.
+
 
 This interaction between levels is what makes the game interesting for AI research. The right move in any position depends not just on the current local board but on the global pattern, the opponent's options, and the cascading constraints several moves ahead. It is a game where thinking locally is a guaranteed path to defeat.
 
