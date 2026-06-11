@@ -40,7 +40,13 @@ The third reason is the one that gives the Bellman equation its power. Consider 
 $$ V^*(s) = \max_a \left[ r(s,a) + \gamma \cdot \mathbb{E}[V^*(s')] \right] $$
 
 
-This is the Bellman optimality equation. It says: the value of the best action from s equals the immediate reward plus the discounted value of wherever that action takes you.
+This is the Bellman optimality equation. It says: the value of the best action from s equals the immediate reward plus the discounted value of wherever that action takes you. 
+
+Here, s' represents the **next state** — the state the environment transitions into after taking action a from state s. Because the environment or the opponent might be unpredictable, s' is technically a random variable, which is why we take the expectation E over it.
+
+This equation gives us a very concrete way to play the game. If we somehow magically knew the perfect value function V*, we wouldn't need to do any deep thinking or search during the game. At any state s, we would just simulate every legal action a, look at the resulting next states s', and pick the action that gives us the highest expected score. A perfect V* acts as a perfect compass.
+
+So the entire goal of reinforcement learning boils down to one task: **solving the Bellman Equation** to find V*. Because the state space of a game like Ultimate Tic-Tac-Toe is far too large to solve this equation exactly, the rest of this essay explores algorithms like Temporal Difference (TD) learning. These algorithms are essentially iterative methods that try to bump our current, imperfect estimates of V until they satisfy this very equation.
 
 What's the mathematical justification for this recursive form? It falls out directly from the law of iterated expectations — what probabilists call the tower property. If Gₜ = rₜ + γ·rₜ₊₁ + γ²·rₜ₊₂ + … denotes the return from time t, then:
 
@@ -56,29 +62,23 @@ $$ V(s_t) = \mathbb{E}[r_t + \gamma G_{t+1} \mid s_t] = \mathbb{E}[r_t \mid s_t]
 
 The inner expectation E[ Gₜ₊₁ | sₜ₊₁ ] is just V(sₜ₊₁) by definition; the tower property lets us collapse it. The Bellman equation is, in this sense, nothing more than the law of iterated expectations applied to discounted sums.
 
-Now — why does γ < 1 guarantee a unique solution to this equation? This is where the mathematics becomes beautiful, and where Brian Christian and Tom Griffiths, in Algorithms to Live By, make an observation that is easy to miss. The Bellman equation is not just a recursive formula — it is a fixed-point equation for the value function. We are looking for a V such that applying the Bellman backup operator T leaves it unchanged: TV = V.
+**From States to Actions: Introducing Q**
 
-The discount factor γ is what makes T a contraction mapping. For any two value functions V and U, the maximum difference after one application of T is:
+While V(s) tells us how good it is to be in a state s, it has a practical limitation. As we saw earlier, if you only know V, finding the best next move requires simulating every possible action to see what the next state s' will be, and then looking up V(s'). This requires you to perfectly know the rules of the game—what we call having a *model* of the environment. 
 
+To avoid this, we can define a slightly different value function: Q(s, a). The Q-function tells us the expected total reward if we start in state s, take a specific action a, and *then* follow our policy for the rest of the game. 
 
-$$ \|T^*V - T^*U\|_\infty \leq \gamma \|V - U\|_\infty $$
-
-
-Because γ < 1, each application of T brings V and U strictly closer together. By the Banach fixed-point theorem, any contraction on a complete metric space has exactly one fixed point — and repeated application of T converges to it from any starting point. Without γ < 1, T is no longer a contraction, and there is no guarantee that a unique solution exists or that iterative methods will converge to it.
-
-Christian and Griffiths frame this through the lens of what they call the explore/exploit trade-off: future rewards are genuinely worth less not just because of impatience, but because the further ahead we peer, the more uncertain the path. The discount factor is thus both a mathematical necessity for convergence and a principled encoding of irreducible uncertainty about the future. Remove it, and you have not simplified the problem — you have broken it.
-
-There is a third, deeper reason that we will meet in Essay 1c. The Gittins index theorem — the exact optimal solution to the multi-armed bandit problem under geometric discounting — requires γ < 1 for the same reason the Bellman equation does. Each arm's optimal value is computed by solving its own Bellman fixed-point equation, which is a contraction only when γ < 1. More remarkably, the proof that the K-arm optimisation decomposes into K independent single-arm problems depends on the geometric structure of discounting: γ < 1 makes each arm's future contributions separable from the others'. The discount factor is not just a convergence device — it is the key that unlocks tractability.
+Because Q(s, a) already has the action baked into it, making a decision becomes trivial: you just look at your current state s, check the Q-values for all available actions a, and pick the action with the highest number. You don't need to simulate the future or know the rules of the game at all; the Q-function does the heavy lifting for you.
 
 ## 3. Two Design Choices
 
-Given the value function, we need to decide how to store and compute it. There are two dimensions to this decision.
+Given these two ways to think about value, we need to decide how to design our learning algorithm. There are two dimensions to this decision:
 
-What to estimate: V or Q?
+**What to estimate: V or Q?**
 
-V(s) is the value of a state: a single number saying how good it is to be in state s. If we store one number per state, V is a vector of length |S| — one entry per state.
+V(s) is the value of a state. If we store one number per state, V is a vector of length |S| — one entry per state. It is cheaper to store, but requires you to simulate the game one step forward to choose actions.
 
-Q(s, a) is the value of taking action a from state s. It is a matrix of dimensions |S| × |A| — one entry per (state, action) pair. Q is more expensive to store, but it is more directly useful: to choose the best action, you read off the row for your current state and take the column with the highest value, without needing a model of the environment.
+Q(s, a) is the value of taking action a from state s. It is a matrix of dimensions |S| × |A| — one entry per (state, action) pair. Q is more expensive to store, but it is directly actionable: you just read off the row for your current state and take the column with the highest value, without needing a model of the environment.
 
 How much of the game to observe before updating?
 
