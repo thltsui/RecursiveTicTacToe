@@ -108,13 +108,13 @@ V(s_t) ← V(s_t) + α · δ_t
 
 TD learning can update after every single step, not just at the end of a game. Its update target is *biased* — it uses V(s_{t+1}), which is itself an estimate, not the true value — but it is much lower variance than Monte Carlo, because the target only looks one step into the future.
 
-There is a subtlety here worth pausing on. At the start of training, we initialise V(s) = 0 for every state. Consider a game where all rewards are zero except at the terminal state, where the winner receives +1. Now follow the TD update rule:
+There is a subtlety here worth pausing on. At the start of training, we initialise V(s) = 0 for every state. Consider a game where all rewards are zero except upon entering the terminal state, where the winner receives +1. Now follow the TD update rule:
 
-On the first game, every transition has r_t = 0 and (before the terminal state) V(s_{t+1}) = 0. So δ_t = 0 + γ·0 − 0 = 0. The update is zero. Nothing is learned from any non-terminal state.
+On the first game, every transition has r_t = 0 and V(s_{t+1}) = 0. So δ_t = 0 + γ·0 − 0 = 0. The update is zero. Nothing is learned from any non-terminal state.
 
-At the terminal state, r_T = 1 and V(s_{T+1}) = 0 (game over), so δ_T = 1 + 0 − 0 = 1. The terminal state gets updated: V(s_T) moves from 0 to something positive.
+For the final winning move from state s_{T-1} into the terminal state s_T, the reward is r_T = 1. Since s_T is terminal, it has no future value: V(s_T) = 0. The TD error for the state just before the end is δ_{T-1} = 1 + 0 − 0 = 1. Thus, the state *just prior* to winning gets updated: V(s_{T-1}) moves from 0 to something positive.
 
-On the second game, if the agent happens to visit the same s_T again, it will find V(s_T) > 0, and the state just before it will now have a nonzero target. The signal is propagating backward — but only one step per game.
+On the second game, if the agent happens to visit the same s_{T-1} again, it will find V(s_{T-1}) > 0, and the state just before *that* will now have a nonzero target. The signal is propagating backward — but only one step per game.
 
 In theory, over many games, this "correction wave" propagates from terminal states backward through the game tree, eventually giving every state an accurate value estimate. In practice, for Ultimate Tic-Tac-Toe, the wave never arrives.
 
@@ -122,7 +122,7 @@ The problem is the 3^81 state space. There are roughly 4.4 × 10^38 possible boa
 
 This is not a problem that more games will fix. You could play a billion games and still have visited a negligible fraction of the 3^81 possible states. The tabular approach — storing one number per state — is simply not viable for a game of this scale.
 
-What is needed is a way to *generalise*: to update the value of one state and have that update automatically propagate to similar states. This is what neural networks provide. A neural network parameterises V(s) as a function of the state — shared weights mean that an update for one state influences the estimated values of all similar states. The correction wave becomes, in effect, a gradient that flows through the entire function class at once. We will return to this in later essays. For now, the lesson is: tabular TD learning is theoretically clean but practically unusable at scale.
+What is needed is a way to *generalise*: to update the value of one state and have that update automatically propagate to similar states. This is what neural networks provide. A neural network parameterises V(s) as a function of the state — shared weights mean that an update for one state influences the estimated values of all similar states. In a grid game like Ultimate Tic-Tac-Toe, *Convolutional Neural Networks (CNNs)* are especially powerful for this: a win threat in the top-left corner is structurally identical to a win threat in the bottom-right corner, and convolutions allow the network to share that learned knowledge across the entire board. The correction wave becomes, in effect, a gradient that flows through the entire function class at once. We will return to this in later essays. For now, the lesson is: tabular TD learning is theoretically clean but practically unusable at scale.
 
 <!-- Figure: figures/fig4_tensor_channels.png — "The 7-channel tensor encoding of a UTTT position after 5 moves (O to move). Each channel is a 9×9 binary plane. The encoding is always from the current player's perspective: Ch 0 shows O's pieces, Ch 1 shows X's pieces, Ch 2 highlights the sub-board O must play in, Ch 4 shows the sub-board X has already won, and Ch 6 is all-ones because it is O's turn." -->
 
@@ -180,7 +180,7 @@ REINFORCE is unbiased: since G_t is the actual return from the actual game, the 
 
 The actor-critic architecture is to policy gradients what TD is to Monte Carlo: it replaces the full return G_t with a bootstrapped estimate, reducing variance at the cost of some bias.
 
-The *actor* is the policy π_θ(a|s). The *critic* is a value function V_φ(s), parameterised separately, whose job is to estimate how good each state is.
+The *actor* is the policy π_θ(a|s). The *critic* is a value function V_φ(s), parameterised separately, whose job is to estimate how good each state is. (As a sneak peek: the AlphaZero network we will build later in this series is an actor-critic architecture! It uses a single shared neural network body that splits into two "heads" — one predicting the value, and the other predicting the move probabilities.)
 
 Instead of weighting the score function by G_t, actor-critic weights it by the *advantage*:
 
@@ -227,6 +227,8 @@ A brief note on the connection to large language models. Reinforcement Learning 
 The pipeline works in three stages. First, a language model is pretrained on text in the usual way. Second, human raters compare pairs of model outputs and express preferences ("response A is better than response B"). These preferences are used to train a *reward model* — a separate neural network that predicts which responses humans will prefer. Third, the language model is fine-tuned with PPO, using the reward model as the reward signal. The policy (the language model) is optimised to generate outputs that score highly according to the reward model — which, by construction, reflects human preferences.
 
 The actor is the language model. The critic is the reward model. The advantage is estimated from the critic's scores. The clipping in PPO prevents the fine-tuned model from drifting too far from the pretrained model, preserving its broad language abilities while nudging it toward human-preferred behaviour.
+
+While PPO has become the standard for training language models to chat, it is still fundamentally a reactive algorithm. To master deep tactical games like Chess, Go, or Ultimate Tic-Tac-Toe, we take a different path. We need an actor-critic algorithm that doesn't just react, but deliberates and plans ahead.
 
 ## 10. The Remaining Problem
 
