@@ -12,9 +12,13 @@ This is the credit-assignment problem, and it is the central challenge in reinfo
 
 Everything in this essay — every algorithm, every design choice — is a different answer to that question.
 
-## 2. The Bellman Equation
+## 2. Two Dimensions of Value-Based Learning
 
-Before choosing actions, we need a way to evaluate positions. To do this, we first need a concept of a policy (denoted by π). You can think of a policy as a mental model or a strategy: it dictates how the agent approaches the game and what moves it is likely to play in any given situation.
+Before choosing actions, we need a way to evaluate positions. Designing a reinforcement learning algorithm requires making decisions along two dimensions: what exactly we are estimating, and when we update those estimates.
+
+### 2.1 Dimension 1: What to Estimate (V vs Q)
+
+To evaluate a position, we first need a concept of a policy (denoted by π). You can think of a policy as a mental model or a strategy: it dictates how the agent approaches the game and what moves it is likely to play in any given situation.
 
 With a strategy in mind, we can define the value of a state s. The value, denoted Vπ(s), is the expected total reward the agent will collect if it starts from state s and plays out the rest of the game strictly following its mental model π. Mathematically, it is an expectation (E) over the sum of future rewards:
 
@@ -70,27 +74,17 @@ To avoid this, we can define a slightly different value function: Q(s, a). The Q
 
 Because Q(s, a) already has the action baked into it, making a decision becomes trivial: you just look at your current state s, check the Q-values for all available actions a, and pick the action with the highest number. You don't need to simulate the future or know the rules of the game at all; the Q-function does the heavy lifting for you.
 
-## 3. Two Design Choices
+### 2.2 Dimension 2: When to Update (Monte Carlo vs TD)
 
-Given these two ways to think about value, we need to decide how to design our learning algorithm. There are two dimensions to this decision:
+This determines the entire character of the learning algorithm. You are in state s_t. You have taken some actions. At some point you must use your observations to update your value estimates. The question is: how much of the future do you observe before making that update?
 
-**What to estimate: V or Q?**
+One extreme is to play the entire game to completion, collect the final outcome, and then work backward attributing credit. This is the Monte Carlo approach. 
 
-V(s) is the value of a state. If we store one number per state, V is a vector of length |S| — one entry per state. It is cheaper to store, but requires you to simulate the game one step forward to choose actions.
+The other extreme is to take a single step, observe the immediate reward and the new state, and update immediately. This is the Temporal Difference approach. 
 
-Q(s, a) is the value of taking action a from state s. It is a matrix of dimensions |S| × |A| — one entry per (state, action) pair. Q is more expensive to store, but it is directly actionable: you just read off the row for your current state and take the column with the highest value, without needing a model of the environment.
+Both are legitimate strategies with genuinely different statistical properties.
 
-How much of the game to observe before updating?
-
-This is the deeper design choice, and it determines the entire character of the algorithm. You are in state s_t. You have taken some actions. At some point you must use your observations to update your value estimates. The question is: how much of the future do you observe before making that update?
-
-One extreme: you play the entire game to completion, collect the final outcome, and then work backward attributing credit. This is the Monte Carlo approach.
-
-The other extreme: you take a single step, observe the immediate reward and the new state, and update immediately. This is the Temporal Difference approach.
-
-Both are legitimate strategies. They are not approximations to each other — they are genuinely different algorithms with different statistical properties. To understand why both exist and when each is preferred, we need to look at them in detail.
-
-## 4. Monte Carlo: Learn from Complete Games
+#### Monte Carlo: Learn from Complete Games
 
 The simplest strategy for the credit-assignment problem is to stop worrying about it during the game, play all the way to the end, and only then assign credit.
 
@@ -112,7 +106,7 @@ Monte Carlo estimation is unbiased: because G_t is the actual return from the ac
 
 The deeper problem is credit assignment. Every state in the game gets updated, but only the terminal state receives a nonzero reward directly. The update for the first move is driven entirely by the cumulative return G_0 — a noisy signal that reflects the quality of thirty-nine more decisions. The first move is not well-served by this.
 
-## 5. TD Learning: Learn from One Step
+#### TD Learning: Learn from One Step
 
 Temporal Difference learning makes a different bet. Instead of waiting for the game to end, it bootstraps: it uses its current estimate of future value to construct a training target.
 
@@ -148,7 +142,7 @@ What is needed is a way to generalise: to update the value of one state and have
 
 <!-- Figure: figures/fig4_tensor_channels.png — "The 7-channel tensor encoding of a UTTT position after 5 moves (O to move). Each channel is a 9×9 binary plane. The encoding is always from the current player's perspective: Ch 0 shows O's pieces, Ch 1 shows X's pieces, Ch 2 highlights the sub-board O must play in, Ch 4 shows the sub-board X has already won, and Ch 6 is all-ones because it is O's turn." -->
 
-## 6. Q-Learning
+#### Q-Learning
 
 Rather than estimating V(s), it is often more useful to estimate Q(s, a) — the value of taking action a from state s, then playing optimally thereafter.
 
@@ -162,7 +156,7 @@ The target rₜ + γ · maxₐ' Q(sₜ₊₁, a') is the "greedy" TD target: it 
 
 Q-learning enjoys strong convergence guarantees in the tabular case. But it inherits exactly the same scaling problem as tabular V-learning: storing one number per (state, action) pair is impossible when the state space is 3^81.
 
-## 7. Deep Q-Networks (DQN)
+#### Deep Q-Networks (DQN)
 
 The fix is to replace the Q-table with a neural network Q(s, a; θ), parameterised by weights θ. Given a state s (encoded as a vector or tensor), the network outputs Q-values for every action simultaneously.
 
@@ -180,7 +174,7 @@ This combination — neural function approximation + target network + experience
 
 For UTTT, DQN is a natural starting point. But it has a limitation: it is purely value-based. It estimates how good each action is, and acts greedily. It says nothing about how to choose actions when many are similarly valued, or how to reason about the structure of the action space.
 
-## 8. Policy Gradients and REINFORCE
+## 3. Policy Gradients and REINFORCE
 
 An alternative approach is to directly parameterise the policy — the function that maps states to actions. Instead of learning V or Q and deriving a policy from them, we learn πθ(a|s) directly: a probability distribution over actions given the current state.
 
@@ -206,7 +200,7 @@ REINFORCE is the algorithm that implements this directly: play a complete game, 
 
 REINFORCE is unbiased: since Gₜ is the actual return from the actual game, the gradient estimate is correct on average. The cost, again, is variance. Gₜ is influenced by everything that happens after time t, including many things unrelated to the quality of action aₜ. The signal is noisy, convergence is slow, and large numbers of games are required.
 
-## 9. Actor-Critic, GAE, and PPO
+## 4. Actor-Critic, GAE, and PPO
 
 The actor-critic architecture is to policy gradients what TD is to Monte Carlo: it replaces the full return G_t with a bootstrapped estimate, reducing variance at the cost of some bias.
 
@@ -270,7 +264,7 @@ The actor is the language model. The critic is the reward model. The advantage i
 
 While PPO has become the standard for training language models to chat, it is still fundamentally a reactive algorithm. To master deep tactical games like Chess, Go, or Ultimate Tic-Tac-Toe, we take a different path. We need an actor-critic algorithm that doesn't just react, but deliberates and plans ahead.
 
-## 10. The Remaining Problem
+## 5. The Remaining Problem
 
 We now have a rich toolkit: TD learning, Q-learning, DQN, REINFORCE, actor-critic, GAE, PPO. All of them are principled solutions to the credit-assignment problem. All of them have been demonstrated to work, in some domain, at scale.
 
