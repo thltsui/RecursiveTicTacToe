@@ -34,7 +34,7 @@ The first is mathematical convergence. For games that could theoretically go on 
 
 This brings us to the second, more philosophical reason: uncertainty. Even though the game is finite, a reward ten steps away is contingent on ten more transitions going exactly as expected. Discounting by γ ensures that we focus on securing a reward (like winning the game) earlier rather than later. It is equivalent to assuming the game might suddenly end or slip out of our control at any moment with probability 1 − γ.
 
-The third reason is the one that gives the Bellman equation its power. Consider the optimisation problem we actually want to solve: find the optimal policy π that maximises E[ Σ γᵗ rₜ ]. This optimisation has a remarkable recursive structure. Any suffix of an optimal trajectory must itself be optimal — otherwise we could improve the overall trajectory by substituting a better suffix. This is Bellman's principle of optimality, and it implies that V satisfies:
+The third reason is the one that gives the Bellman equation its power. Consider the optimisation problem we actually want to solve: find the optimal policy π that maximises E[ Σ γᵗ rₜ ]. This optimisation has a remarkable recursive structure. If you are following the best possible strategy for the whole game, then the moves you make from any point to the end must also be the perfect way to finish. If they weren't, you could just switch to a better finish, which means your original strategy wasn't truly the best one. This is Bellman's principle of optimality, and it implies that V satisfies:
 
 
 $$ V^*(s) = \max_a \left[ r(s,a) + \gamma \cdot \mathbb{E}[V^*(s')] \right] $$
