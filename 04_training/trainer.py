@@ -44,11 +44,12 @@ class TrainingConfig:
 
     All hyperparameters with justified defaults.
     """
-    # Self-play
-    games_per_iteration:   int   = 100
+    # Self-play mix
+    num_self_play:         int   = 10
+    num_vs_random:         int   = 5
+    num_vs_best:           int   = 5
     num_simulations:       int   = 800
     temperature_threshold: int   = 30
-    self_play_with_best:   bool  = True
 
     # Training
     batch_size:            int   = 256
@@ -153,7 +154,7 @@ def train(config: TrainingConfig) -> None:
 
     # Auto-resume from latest checkpoint
     import glob
-    checkpoints = sorted(glob.glob(os.path.join(config.checkpoint_dir, '*.pt')))
+    checkpoints = sorted(glob.glob(os.path.join(config.checkpoint_dir, 'checkpoint_iter*.pt')))
     iteration = 0
     if checkpoints:
         latest_cp = checkpoints[-1]
@@ -192,8 +193,15 @@ def train(config: TrainingConfig) -> None:
         else:
             print(f"  WARNING: pretrain_checkpoint not found: {config.pretrain_checkpoint}")
 
+    # Keep a running best_net model to play against
+    best_net = UltimateTTTNetwork(
+        channels=config.channels, num_blocks=config.num_blocks
+    ).to(config.device)
+    best_net.load_state_dict(best_network_state)
+    best_net.eval()
+
     print(f"Starting training with config:")
-    print(f"  MCTS device: {config.device} | Train device: {train_device}")
+    print(f"  Mcripts device: {config.device} | Train device: {train_device}")
     print(f"  Network: {config.channels}ch x {config.num_blocks}blocks")
     num_params = sum(p.numel() for p in network.parameters())
     print(f"  Parameters: {num_params:,}")
@@ -203,16 +211,15 @@ def train(config: TrainingConfig) -> None:
             iteration += 1
             iter_start = time.time()
 
-            # 1. SELF-PLAY — 100% pure self-play
-            # We break the draw equilibrium via anti-draw value shaping and
-            # increased Dirichlet noise / temperature exploration.
+            # 1. SELF-PLAY
             network.eval()
-            num_self = config.games_per_iteration
-            print(f"[Iter {iteration}] Self-play: {num_self}x pure self-play")
+            print(f"[Iter {iteration}] Self-play: {config.num_self_play} SP, {config.num_vs_random} vs Rand, {config.num_vs_best} vs Best")
             records = generate_mixed_batch(
                 network=network,
-                num_self_play=num_self,
-                num_vs_random=0,
+                num_self_play=config.num_self_play,
+                num_vs_random=config.num_vs_random,
+                num_vs_best=config.num_vs_best,
+                best_network=best_net,
                 num_simulations=config.num_simulations,
                 temperature_threshold=config.temperature_threshold,
                 device=config.device,
@@ -314,6 +321,7 @@ def train(config: TrainingConfig) -> None:
                     # Load the stored best_model.pt's win rate vs random as baseline
                     if win_rate > 0.55 and win_rate > best_random_win_rate:
                         best_network_state = clone_state_dict(network.state_dict())
+                        best_net.load_state_dict(best_network_state)
                         best_random_win_rate = win_rate
                         path = save_checkpoint(network, optimizer, iteration,
                                                win_rate, config.checkpoint_dir)

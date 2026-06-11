@@ -124,6 +124,8 @@ This is not a problem that more games will fix. You could play a billion games a
 
 What is needed is a way to *generalise*: to update the value of one state and have that update automatically propagate to similar states. This is what neural networks provide. A neural network parameterises V(s) as a function of the state — shared weights mean that an update for one state influences the estimated values of all similar states. The correction wave becomes, in effect, a gradient that flows through the entire function class at once. We will return to this in later essays. For now, the lesson is: tabular TD learning is theoretically clean but practically unusable at scale.
 
+<!-- Figure: figures/fig4_tensor_channels.png — "The 7-channel tensor encoding of a UTTT position after 5 moves (O to move). Each channel is a 9×9 binary plane. The encoding is always from the current player's perspective: Ch 0 shows O's pieces, Ch 1 shows X's pieces, Ch 2 highlights the sub-board O must play in, Ch 4 shows the sub-board X has already won, and Ch 6 is all-ones because it is O's turn." -->
+
 ## 6. Q-Learning
 
 Rather than estimating V(s), it is often more useful to estimate Q(s, a) — the value of taking action a from state s, then playing optimally thereafter.
@@ -241,3 +243,7 @@ That combination is Monte Carlo Tree Search — and it is the subject of the nex
 ---
 
 *Next: Essay 1c introduces the multi-armed bandit problem and shows how the explore/exploit trade-off that governs slot machines also governs tree search. The UCB formula that solves the bandit problem turns out to be the key ingredient that makes MCTS both principled and practical.*
+
+---
+
+*Code: [Notebook 1 — The UTTT Game Engine](https://colab.research.google.com/github/thltsui/UlltimateTicTacToe/blob/Substack/substack/notebook_1_uttt_engine.ipynb) shows the full 7-channel `encode_state()` function in action, including a live demonstration of each channel's content for a real game position.*
