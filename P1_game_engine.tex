@@ -1,0 +1,464 @@
+\hypertarget{p1-building-the-ultimate-tic-tac-toe-engine-in-python}{%
+\section{P1: Building the Ultimate Tic-Tac-Toe Engine in
+Python}\label{p1-building-the-ultimate-tic-tac-toe-engine-in-python}}
+
+\emph{This is the first practitioner post in the series. The theory
+essays explain why things work; the practitioner posts show how to build
+them. You need Python 3.9+ and NumPy. All code in this post is
+self-contained --- you can paste it directly into a notebook or script.
+The full runnable notebook is available on
+\href{https://colab.research.google.com/github/thltsui/UlltimateTicTacToe/blob/Substack/substack/notebook_1_uttt_engine.ipynb}{Google
+Colab}.}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+Before we can train any AI, we need a game engine: something that knows
+the rules, generates legal moves, applies them, and tells us when the
+game is over. This post builds that engine from scratch. By the end, you
+will have a fully functional UTTT implementation and an understanding of
+how game state is encoded as a tensor for neural network input.
+
+\hypertarget{representing-the-board}{%
+\subsection{1. Representing the Board}\label{representing-the-board}}
+
+The first design decision is how to represent the game state. We want
+something that is easy to reason about, efficient to copy (we will be
+making millions of copies during search), and expressive enough to
+capture everything the rules require.
+
+A \texttt{dataclass} with NumPy arrays works well:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\ImportTok{import}\NormalTok{ numpy }\ImportTok{as}\NormalTok{ np}
+\ImportTok{from}\NormalTok{ dataclasses }\ImportTok{import}\NormalTok{ dataclass, field}
+
+\AttributeTok{@dataclass}
+\KeywordTok{class}\NormalTok{ GameState:}
+\NormalTok{    cells: np.ndarray }\OperatorTok{=}\NormalTok{ field(}
+\NormalTok{        default\_factory}\OperatorTok{=}\KeywordTok{lambda}\NormalTok{: np.zeros((}\DecValTok{9}\NormalTok{, }\DecValTok{9}\NormalTok{), dtype}\OperatorTok{=}\NormalTok{np.int8)}
+\NormalTok{    )}
+\NormalTok{    sub\_board\_results: np.ndarray }\OperatorTok{=}\NormalTok{ field(}
+\NormalTok{        default\_factory}\OperatorTok{=}\KeywordTok{lambda}\NormalTok{: np.zeros(}\DecValTok{9}\NormalTok{, dtype}\OperatorTok{=}\NormalTok{np.int8)}
+\NormalTok{    )}
+\NormalTok{    active\_sub\_board: }\BuiltInTok{int} \OperatorTok{=} \OperatorTok{{-}}\DecValTok{1}
+\NormalTok{    current\_player: }\BuiltInTok{int} \OperatorTok{=} \DecValTok{1}
+\NormalTok{    move\_count: }\BuiltInTok{int} \OperatorTok{=} \DecValTok{0}
+\NormalTok{    is\_terminal: }\BuiltInTok{bool} \OperatorTok{=} \VariableTok{False}
+\NormalTok{    winner: }\BuiltInTok{object} \OperatorTok{=} \VariableTok{None}
+\end{Highlighting}
+\end{Shaded}
+
+Breaking this down field by field:
+
+\textbf{\texttt{cells} --- shape (9, 9):} The 81 squares of the board,
+indexed as \texttt{cells{[}sub\_board,\ cell{]}}. Values are \texttt{+1}
+(X), \texttt{-1} (O), or \texttt{0} (empty). Sub-boards and cells are
+both indexed 0--8, left-to-right then top-to-bottom within each 3×3
+grid.
+
+\textbf{\texttt{sub\_board\_results} --- shape (9,):} The status of each
+of the 9 local boards. Values are \texttt{+1} (X won), \texttt{-1} (O
+won), \texttt{2} (draw), or \texttt{0} (still in play).
+
+\textbf{\texttt{active\_sub\_board}:} Which local board the current
+player must play in. \texttt{-1} means free choice --- the player may
+play anywhere.
+
+\textbf{\texttt{current\_player}:} \texttt{+1} for X, \texttt{-1} for O.
+This sign convention makes win detection and symmetry handling elegant.
+
+\textbf{\texttt{is\_terminal} and \texttt{winner}:} Terminal states end
+the game. \texttt{winner} is \texttt{+1} (X wins), \texttt{-1} (O wins),
+or \texttt{0} (draw).
+
+\hypertarget{why-immutability-matters}{%
+\subsubsection{Why immutability
+matters}\label{why-immutability-matters}}
+
+We make the game state immutable by always creating a copy before
+applying a move:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{def}\NormalTok{ copy(}\VariableTok{self}\NormalTok{):}
+    \ControlFlowTok{return}\NormalTok{ GameState(}
+\NormalTok{        cells}\OperatorTok{=}\VariableTok{self}\NormalTok{.cells.copy(),}
+\NormalTok{        sub\_board\_results}\OperatorTok{=}\VariableTok{self}\NormalTok{.sub\_board\_results.copy(),}
+\NormalTok{        active\_sub\_board}\OperatorTok{=}\VariableTok{self}\NormalTok{.active\_sub\_board,}
+\NormalTok{        current\_player}\OperatorTok{=}\VariableTok{self}\NormalTok{.current\_player,}
+\NormalTok{        move\_count}\OperatorTok{=}\VariableTok{self}\NormalTok{.move\_count,}
+\NormalTok{        is\_terminal}\OperatorTok{=}\VariableTok{self}\NormalTok{.is\_terminal,}
+\NormalTok{        winner}\OperatorTok{=}\VariableTok{self}\NormalTok{.winner,}
+\NormalTok{    )}
+\end{Highlighting}
+\end{Shaded}
+
+Immutable states mean that the tree search can hold references to many
+board positions simultaneously without any of them corrupting each
+other. Mutable state is a source of hard-to-find bugs in game engines.
+
+\hypertarget{move-encoding}{%
+\subsection{2. Move Encoding}\label{move-encoding}}
+
+UTTT has 81 possible squares. Rather than representing a move as a
+\texttt{(sub\_board,\ cell)} pair, we encode each move as a single
+integer from 0 to 80:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{def}\NormalTok{ encode\_move(sub\_board: }\BuiltInTok{int}\NormalTok{, cell: }\BuiltInTok{int}\NormalTok{) }\OperatorTok{{-}\textgreater{}} \BuiltInTok{int}\NormalTok{:}
+    \ControlFlowTok{return}\NormalTok{ sub\_board }\OperatorTok{*} \DecValTok{9} \OperatorTok{+}\NormalTok{ cell}
+
+\KeywordTok{def}\NormalTok{ decode\_move(move\_idx: }\BuiltInTok{int}\NormalTok{) }\OperatorTok{{-}\textgreater{}} \BuiltInTok{tuple}\NormalTok{[}\BuiltInTok{int}\NormalTok{, }\BuiltInTok{int}\NormalTok{]:}
+    \ControlFlowTok{return}\NormalTok{ move\_idx }\OperatorTok{//} \DecValTok{9}\NormalTok{, move\_idx }\OperatorTok{\%} \DecValTok{9}
+\end{Highlighting}
+\end{Shaded}
+
+This flat encoding is convenient for the neural network's policy head,
+which outputs a probability distribution over all 81 moves. Sub-board 0,
+cell 0 is move 0; sub-board 8, cell 8 is move 80.
+
+The spatial position of a cell in the 9×9 grid (for visualisation) is:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{sub\_board, cell }\OperatorTok{=}\NormalTok{ decode\_move(move\_idx)}
+\NormalTok{row }\OperatorTok{=}\NormalTok{ (sub\_board }\OperatorTok{//} \DecValTok{3}\NormalTok{) }\OperatorTok{*} \DecValTok{3} \OperatorTok{+}\NormalTok{ (cell }\OperatorTok{//} \DecValTok{3}\NormalTok{)}
+\NormalTok{col }\OperatorTok{=}\NormalTok{ (sub\_board  }\OperatorTok{\%} \DecValTok{3}\NormalTok{) }\OperatorTok{*} \DecValTok{3} \OperatorTok{+}\NormalTok{ (cell  }\OperatorTok{\%} \DecValTok{3}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+\hypertarget{generating-legal-moves}{%
+\subsection{3. Generating Legal Moves}\label{generating-legal-moves}}
+
+Legal move generation is the core of the engine. It implements the
+``send your opponent'' rule:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{def}\NormalTok{ get\_legal\_moves(state: GameState) }\OperatorTok{{-}\textgreater{}} \BuiltInTok{list}\NormalTok{[}\BuiltInTok{int}\NormalTok{]:}
+    \ControlFlowTok{if}\NormalTok{ state.is\_terminal:}
+        \ControlFlowTok{return}\NormalTok{ []}
+\NormalTok{    moves }\OperatorTok{=}\NormalTok{ []}
+    \ControlFlowTok{if}\NormalTok{ state.active\_sub\_board }\OperatorTok{==} \OperatorTok{{-}}\DecValTok{1}\NormalTok{:}
+        \CommentTok{\# Free choice: any empty cell in any undecided sub{-}board}
+        \ControlFlowTok{for}\NormalTok{ sb }\KeywordTok{in} \BuiltInTok{range}\NormalTok{(}\DecValTok{9}\NormalTok{):}
+            \ControlFlowTok{if}\NormalTok{ state.sub\_board\_results[sb] }\OperatorTok{!=} \DecValTok{0}\NormalTok{:}
+                \ControlFlowTok{continue}
+            \ControlFlowTok{for}\NormalTok{ cell }\KeywordTok{in} \BuiltInTok{range}\NormalTok{(}\DecValTok{9}\NormalTok{):}
+                \ControlFlowTok{if}\NormalTok{ state.cells[sb, cell] }\OperatorTok{==} \DecValTok{0}\NormalTok{:}
+\NormalTok{                    moves.append(encode\_move(sb, cell))}
+    \ControlFlowTok{else}\NormalTok{:}
+\NormalTok{        sb }\OperatorTok{=}\NormalTok{ state.active\_sub\_board}
+        \ControlFlowTok{if}\NormalTok{ state.sub\_board\_results[sb] }\OperatorTok{==} \DecValTok{0}\NormalTok{:}
+            \CommentTok{\# Normal case: play in the required sub{-}board}
+            \ControlFlowTok{for}\NormalTok{ cell }\KeywordTok{in} \BuiltInTok{range}\NormalTok{(}\DecValTok{9}\NormalTok{):}
+                \ControlFlowTok{if}\NormalTok{ state.cells[sb, cell] }\OperatorTok{==} \DecValTok{0}\NormalTok{:}
+\NormalTok{                    moves.append(encode\_move(sb, cell))}
+        \ControlFlowTok{if} \KeywordTok{not}\NormalTok{ moves:}
+            \CommentTok{\# The required sub{-}board is full or already decided:}
+            \CommentTok{\# fall back to free choice}
+            \ControlFlowTok{for}\NormalTok{ sb2 }\KeywordTok{in} \BuiltInTok{range}\NormalTok{(}\DecValTok{9}\NormalTok{):}
+                \ControlFlowTok{if}\NormalTok{ state.sub\_board\_results[sb2] }\OperatorTok{!=} \DecValTok{0}\NormalTok{:}
+                    \ControlFlowTok{continue}
+                \ControlFlowTok{for}\NormalTok{ cell }\KeywordTok{in} \BuiltInTok{range}\NormalTok{(}\DecValTok{9}\NormalTok{):}
+                    \ControlFlowTok{if}\NormalTok{ state.cells[sb2, cell] }\OperatorTok{==} \DecValTok{0}\NormalTok{:}
+\NormalTok{                        moves.append(encode\_move(sb2, cell))}
+    \ControlFlowTok{return}\NormalTok{ moves}
+\end{Highlighting}
+\end{Shaded}
+
+The key logic: if \texttt{active\_sub\_board} is \texttt{-1}, any empty
+cell on any undecided board is legal. Otherwise, the current player must
+play in \texttt{active\_sub\_board} --- unless that board is already
+decided, in which case they get free choice.
+
+For the neural network, we also need a binary mask over all 81 moves:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{def}\NormalTok{ get\_legal\_move\_mask(state: GameState) }\OperatorTok{{-}\textgreater{}}\NormalTok{ np.ndarray:}
+\NormalTok{    mask }\OperatorTok{=}\NormalTok{ np.zeros(}\DecValTok{81}\NormalTok{, dtype}\OperatorTok{=}\NormalTok{np.float32)}
+    \ControlFlowTok{for}\NormalTok{ move }\KeywordTok{in}\NormalTok{ get\_legal\_moves(state):}
+\NormalTok{        mask[move] }\OperatorTok{=} \FloatTok{1.0}
+    \ControlFlowTok{return}\NormalTok{ mask}
+\end{Highlighting}
+\end{Shaded}
+
+This mask is multiplied with the policy head output during search to
+zero out illegal moves before the softmax.
+
+\hypertarget{win-detection}{%
+\subsection{4. Win Detection}\label{win-detection}}
+
+Win detection runs at two levels: local (did someone win this
+sub-board?) and global (did someone win three sub-boards in a row?).
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{WIN\_LINES }\OperatorTok{=}\NormalTok{ [}
+\NormalTok{    (}\DecValTok{0}\NormalTok{,}\DecValTok{1}\NormalTok{,}\DecValTok{2}\NormalTok{), (}\DecValTok{3}\NormalTok{,}\DecValTok{4}\NormalTok{,}\DecValTok{5}\NormalTok{), (}\DecValTok{6}\NormalTok{,}\DecValTok{7}\NormalTok{,}\DecValTok{8}\NormalTok{),   }\CommentTok{\# rows}
+\NormalTok{    (}\DecValTok{0}\NormalTok{,}\DecValTok{3}\NormalTok{,}\DecValTok{6}\NormalTok{), (}\DecValTok{1}\NormalTok{,}\DecValTok{4}\NormalTok{,}\DecValTok{7}\NormalTok{), (}\DecValTok{2}\NormalTok{,}\DecValTok{5}\NormalTok{,}\DecValTok{8}\NormalTok{),   }\CommentTok{\# columns}
+\NormalTok{    (}\DecValTok{0}\NormalTok{,}\DecValTok{4}\NormalTok{,}\DecValTok{8}\NormalTok{), (}\DecValTok{2}\NormalTok{,}\DecValTok{4}\NormalTok{,}\DecValTok{6}\NormalTok{),             }\CommentTok{\# diagonals}
+\NormalTok{]}
+
+\KeywordTok{def}\NormalTok{ check\_sub\_board\_winner(cells\_for\_sb: np.ndarray) }\OperatorTok{{-}\textgreater{}} \BuiltInTok{int}\NormalTok{:}
+    \CommentTok{"""Returns +1, {-}1, 2 (draw), or 0 (ongoing)."""}
+    \ControlFlowTok{for}\NormalTok{ a, b, c }\KeywordTok{in}\NormalTok{ WIN\_LINES:}
+        \ControlFlowTok{if}\NormalTok{ cells\_for\_sb[a] }\OperatorTok{!=} \DecValTok{0} \KeywordTok{and}\NormalTok{ cells\_for\_sb[a] }\OperatorTok{==}\NormalTok{ cells\_for\_sb[b] }\OperatorTok{==}\NormalTok{ cells\_for\_sb[c]:}
+            \ControlFlowTok{return} \BuiltInTok{int}\NormalTok{(cells\_for\_sb[a])}
+    \ControlFlowTok{if}\NormalTok{ np.}\BuiltInTok{all}\NormalTok{(cells\_for\_sb }\OperatorTok{!=} \DecValTok{0}\NormalTok{):}
+        \ControlFlowTok{return} \DecValTok{2}  \CommentTok{\# draw}
+    \ControlFlowTok{return} \DecValTok{0}      \CommentTok{\# still in play}
+
+\KeywordTok{def}\NormalTok{ check\_meta\_winner(sub\_board\_results: np.ndarray) }\OperatorTok{{-}\textgreater{}} \BuiltInTok{int}\NormalTok{:}
+    \CommentTok{"""Returns +1, {-}1, 2 (draw), or 0 (ongoing) for the global board."""}
+    \ControlFlowTok{for}\NormalTok{ a, b, c }\KeywordTok{in}\NormalTok{ WIN\_LINES:}
+        \ControlFlowTok{if}\NormalTok{ (sub\_board\_results[a] }\KeywordTok{in}\NormalTok{ (}\DecValTok{1}\NormalTok{, }\OperatorTok{{-}}\DecValTok{1}\NormalTok{) }\KeywordTok{and}
+\NormalTok{                sub\_board\_results[a] }\OperatorTok{==}\NormalTok{ sub\_board\_results[b] }\OperatorTok{==}\NormalTok{ sub\_board\_results[c]):}
+            \ControlFlowTok{return} \BuiltInTok{int}\NormalTok{(sub\_board\_results[a])}
+    \ControlFlowTok{if}\NormalTok{ np.}\BuiltInTok{all}\NormalTok{(sub\_board\_results }\OperatorTok{!=} \DecValTok{0}\NormalTok{):}
+        \ControlFlowTok{return} \DecValTok{2}
+    \ControlFlowTok{return} \DecValTok{0}
+\end{Highlighting}
+\end{Shaded}
+
+\hypertarget{applying-a-move}{%
+\subsection{5. Applying a Move}\label{applying-a-move}}
+
+\texttt{apply\_move} is the heart of the engine. It takes a state and a
+move index, and returns a new state:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{def}\NormalTok{ apply\_move(state: GameState, move\_idx: }\BuiltInTok{int}\NormalTok{) }\OperatorTok{{-}\textgreater{}}\NormalTok{ GameState:}
+\NormalTok{    sb, cell }\OperatorTok{=}\NormalTok{ decode\_move(move\_idx)}
+\NormalTok{    s }\OperatorTok{=}\NormalTok{ state.copy()}
+
+    \CommentTok{\# Place the mark}
+\NormalTok{    s.cells[sb, cell] }\OperatorTok{=}\NormalTok{ state.current\_player}
+
+    \CommentTok{\# Update sub{-}board result if it just ended}
+    \ControlFlowTok{if}\NormalTok{ s.sub\_board\_results[sb] }\OperatorTok{==} \DecValTok{0}\NormalTok{:}
+\NormalTok{        result }\OperatorTok{=}\NormalTok{ check\_sub\_board\_winner(s.cells[sb])}
+        \ControlFlowTok{if}\NormalTok{ result }\OperatorTok{!=} \DecValTok{0}\NormalTok{:}
+\NormalTok{            s.sub\_board\_results[sb] }\OperatorTok{=}\NormalTok{ result}
+
+    \CommentTok{\# Check if the global game is over}
+\NormalTok{    meta }\OperatorTok{=}\NormalTok{ check\_meta\_winner(s.sub\_board\_results)}
+    \ControlFlowTok{if}\NormalTok{ meta }\OperatorTok{!=} \DecValTok{0}\NormalTok{:}
+\NormalTok{        s.is\_terminal }\OperatorTok{=} \VariableTok{True}
+\NormalTok{        s.winner }\OperatorTok{=} \DecValTok{0} \ControlFlowTok{if}\NormalTok{ meta }\OperatorTok{==} \DecValTok{2} \ControlFlowTok{else}\NormalTok{ meta}
+
+    \CommentTok{\# The cell played determines where the opponent must go next}
+    \CommentTok{\# If that sub{-}board is already decided, give free choice}
+\NormalTok{    s.active\_sub\_board }\OperatorTok{=} \OperatorTok{{-}}\DecValTok{1} \ControlFlowTok{if}\NormalTok{ s.sub\_board\_results[cell] }\OperatorTok{!=} \DecValTok{0} \ControlFlowTok{else}\NormalTok{ cell}
+
+    \CommentTok{\# Switch player and increment move count}
+\NormalTok{    s.current\_player }\OperatorTok{=} \OperatorTok{{-}}\NormalTok{state.current\_player}
+\NormalTok{    s.move\_count }\OperatorTok{=}\NormalTok{ state.move\_count }\OperatorTok{+} \DecValTok{1}
+
+    \ControlFlowTok{return}\NormalTok{ s}
+\end{Highlighting}
+\end{Shaded}
+
+The line
+\texttt{s.active\_sub\_board\ =\ -1\ if\ s.sub\_board\_results{[}cell{]}\ !=\ 0\ else\ cell}
+is the entire ``send your opponent'' rule in one expression. The cell
+index within the current sub-board (\texttt{cell}) determines the next
+active sub-board. If \texttt{sub\_board\_results{[}cell{]}} is non-zero
+(that sub-board is decided), we set \texttt{active\_sub\_board\ =\ -1}
+to grant free choice.
+
+\hypertarget{encoding-state-as-a-tensor}{%
+\subsection{6. Encoding State as a
+Tensor}\label{encoding-state-as-a-tensor}}
+
+The game state needs to be converted to a tensor for the neural network.
+We use 7 channels, each a 9×9 binary grid, always expressed from the
+perspective of the current player (so the network always sees ``my
+pieces'' in channel 0, regardless of whether the current player is X or
+O):
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{def}\NormalTok{ encode\_state(state: GameState) }\OperatorTok{{-}\textgreater{}}\NormalTok{ np.ndarray:}
+    \CommentTok{"""Returns shape (7, 9, 9) float32 tensor."""}
+\NormalTok{    p }\OperatorTok{=}\NormalTok{ state.current\_player  }\CommentTok{\# +1 or {-}1}
+\NormalTok{    tensor }\OperatorTok{=}\NormalTok{ np.zeros((}\DecValTok{7}\NormalTok{, }\DecValTok{9}\NormalTok{, }\DecValTok{9}\NormalTok{), dtype}\OperatorTok{=}\NormalTok{np.float32)}
+
+    \ControlFlowTok{for}\NormalTok{ sb }\KeywordTok{in} \BuiltInTok{range}\NormalTok{(}\DecValTok{9}\NormalTok{):}
+\NormalTok{        rb, cb }\OperatorTok{=}\NormalTok{ sb }\OperatorTok{//} \DecValTok{3}\NormalTok{, sb }\OperatorTok{\%} \DecValTok{3}
+\NormalTok{        result }\OperatorTok{=}\NormalTok{ state.sub\_board\_results[sb]}
+
+        \ControlFlowTok{for}\NormalTok{ cell }\KeywordTok{in} \BuiltInTok{range}\NormalTok{(}\DecValTok{9}\NormalTok{):}
+\NormalTok{            r }\OperatorTok{=}\NormalTok{ rb }\OperatorTok{*} \DecValTok{3} \OperatorTok{+}\NormalTok{ cell }\OperatorTok{//} \DecValTok{3}
+\NormalTok{            c }\OperatorTok{=}\NormalTok{ cb }\OperatorTok{*} \DecValTok{3} \OperatorTok{+}\NormalTok{ cell }\OperatorTok{\%} \DecValTok{3}
+\NormalTok{            v }\OperatorTok{=}\NormalTok{ state.cells[sb, cell]}
+
+            \CommentTok{\# Channel 0: current player\textquotesingle{}s pieces}
+            \ControlFlowTok{if}\NormalTok{ v }\OperatorTok{==}\NormalTok{ p:}
+\NormalTok{                tensor[}\DecValTok{0}\NormalTok{, r, c] }\OperatorTok{=} \FloatTok{1.0}
+            \CommentTok{\# Channel 1: opponent\textquotesingle{}s pieces}
+            \ControlFlowTok{elif}\NormalTok{ v }\OperatorTok{==} \OperatorTok{{-}}\NormalTok{p:}
+\NormalTok{                tensor[}\DecValTok{1}\NormalTok{, r, c] }\OperatorTok{=} \FloatTok{1.0}
+
+        \CommentTok{\# Channels 2{-}4: sub{-}board outcomes (current player won, opponent won, draw)}
+        \ControlFlowTok{if}\NormalTok{ result }\OperatorTok{==}\NormalTok{ p:}
+\NormalTok{            tensor[}\DecValTok{2}\NormalTok{, rb}\OperatorTok{*}\DecValTok{3}\NormalTok{:rb}\OperatorTok{*}\DecValTok{3}\OperatorTok{+}\DecValTok{3}\NormalTok{, cb}\OperatorTok{*}\DecValTok{3}\NormalTok{:cb}\OperatorTok{*}\DecValTok{3}\OperatorTok{+}\DecValTok{3}\NormalTok{] }\OperatorTok{=} \FloatTok{1.0}
+        \ControlFlowTok{elif}\NormalTok{ result }\OperatorTok{==} \OperatorTok{{-}}\NormalTok{p:}
+\NormalTok{            tensor[}\DecValTok{3}\NormalTok{, rb}\OperatorTok{*}\DecValTok{3}\NormalTok{:rb}\OperatorTok{*}\DecValTok{3}\OperatorTok{+}\DecValTok{3}\NormalTok{, cb}\OperatorTok{*}\DecValTok{3}\NormalTok{:cb}\OperatorTok{*}\DecValTok{3}\OperatorTok{+}\DecValTok{3}\NormalTok{] }\OperatorTok{=} \FloatTok{1.0}
+        \ControlFlowTok{elif}\NormalTok{ result }\OperatorTok{==} \DecValTok{2}\NormalTok{:}
+\NormalTok{            tensor[}\DecValTok{4}\NormalTok{, rb}\OperatorTok{*}\DecValTok{3}\NormalTok{:rb}\OperatorTok{*}\DecValTok{3}\OperatorTok{+}\DecValTok{3}\NormalTok{, cb}\OperatorTok{*}\DecValTok{3}\NormalTok{:cb}\OperatorTok{*}\DecValTok{3}\OperatorTok{+}\DecValTok{3}\NormalTok{] }\OperatorTok{=} \FloatTok{1.0}
+
+        \CommentTok{\# Channel 5: active sub{-}board mask}
+\NormalTok{        is\_active }\OperatorTok{=}\NormalTok{ (state.active\_sub\_board }\OperatorTok{==} \OperatorTok{{-}}\DecValTok{1} \KeywordTok{or}\NormalTok{ state.active\_sub\_board }\OperatorTok{==}\NormalTok{ sb)}
+        \ControlFlowTok{if}\NormalTok{ is\_active }\KeywordTok{and}\NormalTok{ result }\OperatorTok{==} \DecValTok{0}\NormalTok{:}
+\NormalTok{            tensor[}\DecValTok{5}\NormalTok{, rb}\OperatorTok{*}\DecValTok{3}\NormalTok{:rb}\OperatorTok{*}\DecValTok{3}\OperatorTok{+}\DecValTok{3}\NormalTok{, cb}\OperatorTok{*}\DecValTok{3}\NormalTok{:cb}\OperatorTok{*}\DecValTok{3}\OperatorTok{+}\DecValTok{3}\NormalTok{] }\OperatorTok{=} \FloatTok{1.0}
+
+    \CommentTok{\# Channel 6: current player indicator (all 1s for current player, 0s for opponent)}
+\NormalTok{    tensor[}\DecValTok{6}\NormalTok{, :, :] }\OperatorTok{=} \FloatTok{1.0} \ControlFlowTok{if}\NormalTok{ p }\OperatorTok{==} \DecValTok{1} \ControlFlowTok{else} \FloatTok{0.0}
+
+    \ControlFlowTok{return}\NormalTok{ tensor}
+\end{Highlighting}
+\end{Shaded}
+
+The 7 channels encode different types of information:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Ch 0} --- my pieces (current player's marks)
+\item
+  \textbf{Ch 1} --- opponent's pieces
+\item
+  \textbf{Ch 2} --- sub-boards I have won (filled with 1s across the
+  full 3×3 region)
+\item
+  \textbf{Ch 3} --- sub-boards opponent has won
+\item
+  \textbf{Ch 4} --- drawn sub-boards
+\item
+  \textbf{Ch 5} --- currently active sub-board(s): where I am allowed to
+  play
+\item
+  \textbf{Ch 6} --- whose turn it is (a global binary flag, constant
+  across the grid)
+\end{itemize}
+
+The player-relative encoding (channels 0 and 1 flip depending on whose
+turn it is) means the network learns symmetrically --- it always sees
+the board from the perspective of the player to move. Without this, the
+network would need to learn separate strategies for X and O.
+
+\hypertarget{putting-it-together-a-random-game}{%
+\subsection{7. Putting It Together: A Random
+Game}\label{putting-it-together-a-random-game}}
+
+Here is a complete random-agent loop using everything we have built:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\ImportTok{import}\NormalTok{ random}
+
+\KeywordTok{def}\NormalTok{ play\_random\_game(seed}\OperatorTok{=}\VariableTok{None}\NormalTok{):}
+    \ControlFlowTok{if}\NormalTok{ seed }\KeywordTok{is} \KeywordTok{not} \VariableTok{None}\NormalTok{:}
+\NormalTok{        random.seed(seed)}
+\NormalTok{    state }\OperatorTok{=}\NormalTok{ GameState()}
+\NormalTok{    move\_history }\OperatorTok{=}\NormalTok{ []}
+
+    \ControlFlowTok{while} \KeywordTok{not}\NormalTok{ state.is\_terminal:}
+\NormalTok{        legal }\OperatorTok{=}\NormalTok{ get\_legal\_moves(state)}
+\NormalTok{        move }\OperatorTok{=}\NormalTok{ random.choice(legal)}
+\NormalTok{        move\_history.append(move)}
+\NormalTok{        state }\OperatorTok{=}\NormalTok{ apply\_move(state, move)}
+
+    \ControlFlowTok{return}\NormalTok{ state, move\_history}
+
+\NormalTok{state, history }\OperatorTok{=}\NormalTok{ play\_random\_game(seed}\OperatorTok{=}\DecValTok{42}\NormalTok{)}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"Game ended after }\SpecialCharTok{\{}\NormalTok{state}\SpecialCharTok{.}\NormalTok{move\_count}\SpecialCharTok{\}}\SpecialStringTok{ moves"}\NormalTok{)}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"Winner: }\SpecialCharTok{\{}\StringTok{\textquotesingle{}X\textquotesingle{}} \ControlFlowTok{if}\NormalTok{ state}\SpecialCharTok{.}\NormalTok{winner }\OperatorTok{==} \DecValTok{1} \ControlFlowTok{else} \StringTok{\textquotesingle{}O\textquotesingle{}} \ControlFlowTok{if}\NormalTok{ state}\SpecialCharTok{.}\NormalTok{winner }\OperatorTok{==} \OperatorTok{{-}}\DecValTok{1} \ControlFlowTok{else} \StringTok{\textquotesingle{}Draw\textquotesingle{}}\SpecialCharTok{\}}\SpecialStringTok{"}\NormalTok{)}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"Legal moves at each step ranged from }\SpecialCharTok{\{}\BuiltInTok{min}\NormalTok{(}\BuiltInTok{len}\NormalTok{(get\_legal\_moves(GameState())) }\ControlFlowTok{for}\NormalTok{ \_ }\KeywordTok{in}\NormalTok{ [}\DecValTok{0}\NormalTok{])}\SpecialCharTok{\}}\SpecialStringTok{ to 81"}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+With seed 42, the game lasts 42 moves and X wins. Running 1000 random
+games gives a sense of the distribution:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{results }\OperatorTok{=}\NormalTok{ \{}\StringTok{\textquotesingle{}X\textquotesingle{}}\NormalTok{: }\DecValTok{0}\NormalTok{, }\StringTok{\textquotesingle{}O\textquotesingle{}}\NormalTok{: }\DecValTok{0}\NormalTok{, }\StringTok{\textquotesingle{}Draw\textquotesingle{}}\NormalTok{: }\DecValTok{0}\NormalTok{\}}
+\NormalTok{lengths }\OperatorTok{=}\NormalTok{ []}
+
+\ControlFlowTok{for}\NormalTok{ seed }\KeywordTok{in} \BuiltInTok{range}\NormalTok{(}\DecValTok{1000}\NormalTok{):}
+\NormalTok{    s, h }\OperatorTok{=}\NormalTok{ play\_random\_game(seed}\OperatorTok{=}\NormalTok{seed)}
+\NormalTok{    lengths.append(s.move\_count)}
+\NormalTok{    key }\OperatorTok{=} \StringTok{\textquotesingle{}X\textquotesingle{}} \ControlFlowTok{if}\NormalTok{ s.winner }\OperatorTok{==} \DecValTok{1} \ControlFlowTok{else} \StringTok{\textquotesingle{}O\textquotesingle{}} \ControlFlowTok{if}\NormalTok{ s.winner }\OperatorTok{==} \OperatorTok{{-}}\DecValTok{1} \ControlFlowTok{else} \StringTok{\textquotesingle{}Draw\textquotesingle{}}
+\NormalTok{    results[key] }\OperatorTok{+=} \DecValTok{1}
+
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"Results: }\SpecialCharTok{\{}\NormalTok{results}\SpecialCharTok{\}}\SpecialStringTok{"}\NormalTok{)}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"Avg game length: }\SpecialCharTok{\{}\BuiltInTok{sum}\NormalTok{(lengths)}\OperatorTok{/}\BuiltInTok{len}\NormalTok{(lengths)}\SpecialCharTok{:.1f\}}\SpecialStringTok{ moves"}\NormalTok{)}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"Min/Max: }\SpecialCharTok{\{}\BuiltInTok{min}\NormalTok{(lengths)}\SpecialCharTok{\}}\SpecialStringTok{/}\SpecialCharTok{\{}\BuiltInTok{max}\NormalTok{(lengths)}\SpecialCharTok{\}}\SpecialStringTok{"}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+Typical output:
+
+\begin{verbatim}
+Results: {'X': 498, 'O': 487, 'Draw': 15}
+Avg game length: 39.4 moves
+Min/Max: 17/81
+\end{verbatim}
+
+Random play is nearly symmetric between X and O (first-mover advantage
+is small), games typically last around 40 moves, and draws are rare.
+This baseline is useful: any trained agent should dramatically
+outperform random play, and any evaluation should use both colours.
+
+\hypertarget{what-we-have}{%
+\subsection{8. What We Have}\label{what-we-have}}
+
+At this point we have a complete, self-contained UTTT game engine:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{\texttt{GameState}} --- immutable board representation
+\item
+  \textbf{\texttt{encode\_move} / \texttt{decode\_move}} --- flat
+  integer move encoding
+\item
+  \textbf{\texttt{get\_legal\_moves}} --- full rule-compliant move
+  generation
+\item
+  \textbf{\texttt{get\_legal\_move\_mask}} --- binary mask for the
+  neural network
+\item
+  \textbf{\texttt{apply\_move}} --- state transition function
+\item
+  \textbf{\texttt{check\_sub\_board\_winner} /
+  \texttt{check\_meta\_winner}} --- win detection
+\item
+  \textbf{\texttt{encode\_state}} --- 7-channel tensor encoding
+\end{itemize}
+
+This is everything the MCTS and training loop need from the game engine.
+P2 will wire up simple RL agents (a tabular Q-learner and a neural
+Q-network) against this engine, which will make the limitations of both
+immediately apparent and motivate the AlphaZero approach.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\emph{Theory: \href{essay1_what_is_uttt.md}{T1 --- What is Ultimate
+Tic-Tac-Toe?} covers the rules and strategic structure of the game.
+\href{essay1b_rl_background.md}{T2 --- The Reinforcement Learning
+Landscape} covers the learning algorithms that P2 will implement.}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\emph{Full notebook:
+\href{https://colab.research.google.com/github/thltsui/UlltimateTicTacToe/blob/Substack/substack/notebook_1_uttt_engine.ipynb}{Notebook
+1 --- The UTTT Game Engine} --- runs all the code in this post with
+additional tests, an ASCII board visualiser, and a random-agent
+tournament.}

@@ -29,13 +29,12 @@ def main():
         channels=192,
         num_blocks=10,
 
-        # Self-play mix
+        # Self-play — 100% pure self-play with anti-draw value shaping
         device='cpu',
-        num_self_play=10,
-        num_vs_random=5,
-        num_vs_best=5,
+        games_per_iteration=20,
         num_simulations=200,
         temperature_threshold=30,  # AlphaZero standard: temp=1 for first 30 moves
+        self_play_with_best=False,
 
         # Training
         batch_size=256,
@@ -79,7 +78,7 @@ def main():
     print("=" * 60)
     print(f"  Device:       {config.device} (MCTS) + MPS (training)")
     print(f"  Network:      {config.channels}ch x {config.num_blocks} blocks ({n_params:,} params)")
-    print(f"  Self-play:    {config.num_self_play} SP + {config.num_vs_random} vs Rand + {config.num_vs_best} vs Best ({config.num_simulations} sims/move)")
+    print(f"  Self-play:    {config.games_per_iteration} games x {config.num_simulations} sims/move")
     print(f"  Training:     {config.batches_per_iteration} batches x B={config.batch_size}")
     print(f"  Arena:        every {config.arena_every_n} iters, {config.arena_games} games")
     print(f"  Buffer:       {config.buffer_capacity:,} capacity")

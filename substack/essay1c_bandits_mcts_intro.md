@@ -102,8 +102,6 @@ By the Banach fixed-point theorem, there is exactly one solution. Without γ < 1
 
 The Gittins index thus provides a deeper account of why γ < 1 matters — one that goes beyond "the Bellman equation needs a contraction." The discount factor is the key that unlocks a beautiful reduction: an intractable K-dimensional optimisation collapses into K independent Bellman equations, each with a unique solution, because the geometric structure of discounting makes the arms separable. Remove γ < 1, and both the reduction and the uniqueness disappear simultaneously.
 
-<!-- Figure: figures/fig3_midgame.png — "A mid-game UTTT position. Blue = sub-board won by X; red = won by O; grey = drawn; yellow = the sub-board the current player is constrained to play in. From this position, the active player must play in the yellow sub-board — a direct consequence of the opponent's last move." -->
-
 ## 4. From Bandits to Trees: PUCT
 
 Now take the bandit problem and put it inside a game tree.
@@ -170,7 +168,3 @@ This is the recursive beauty at the heart of AlphaZero: the Lai-Robbins argument
 ---
 
 *Next: Essay 2 dives into the full AlphaZero MCTS loop — self-play, tree search, and the training pipeline — and shows how these pieces fit together into a system that starts from random play and converges to superhuman performance.*
-
----
-
-*Code: [Notebook 1 — The UTTT Game Engine](https://colab.research.google.com/github/thltsui/UlltimateTicTacToe/blob/Substack/substack/notebook_1_uttt_engine.ipynb) builds the game engine that MCTS runs on — legal move generation, immutable state transitions, and the random-agent baseline whose limitations motivate everything in this essay.*

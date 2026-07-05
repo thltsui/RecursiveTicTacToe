@@ -1,0 +1,495 @@
+\hypertarget{p2-teaching-an-agent-to-play-from-tabular-q-learning-to-neural-q-networks}{%
+\section{P2: Teaching an Agent to Play --- From Tabular Q-Learning to
+Neural
+Q-Networks}\label{p2-teaching-an-agent-to-play-from-tabular-q-learning-to-neural-q-networks}}
+
+\emph{Prerequisites: P1 (the game engine). You will need Python 3.9+,
+NumPy, and PyTorch. All code in this post builds on the
+\texttt{GameState}, \texttt{apply\_move}, \texttt{get\_legal\_moves},
+\texttt{encode\_state}, and \texttt{get\_legal\_move\_mask} functions
+from P1.}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+T2 introduced the theory of TD learning, Q-learning, and policy
+gradients. This post implements them directly on Ultimate Tic-Tac-Toe
+and watches what happens. The story is a honest one: tabular methods
+fail on this game almost immediately, for a reason that turns out to be
+informative. Neural Q-learning does better, but still hits a ceiling.
+Understanding exactly where each approach breaks down is the motivation
+for the AlphaZero architecture in P3.
+
+\hypertarget{tabular-q-learning-the-state-space-problem}{%
+\subsection{1. Tabular Q-Learning: The State-Space
+Problem}\label{tabular-q-learning-the-state-space-problem}}
+
+Q-learning maintains a table mapping each (state, action) pair to an
+expected future reward. On small problems --- a 4×4 grid world, a simple
+maze --- this works well. The table is finite and manageable.
+
+For UTTT, the state space is bounded by 3\^{}81 ≈ 4.4 × 10\^{}38
+distinct board configurations. A Q-table with one float per entry, if it
+could be stored at all, would require more storage than exists on Earth.
+
+We can still implement tabular Q-learning --- it just learns only from
+the specific positions it visits, generalising to nothing it hasn't seen
+before. Let's do this and measure how far it gets.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\ImportTok{import}\NormalTok{ random}
+\ImportTok{import}\NormalTok{ numpy }\ImportTok{as}\NormalTok{ np}
+\ImportTok{from}\NormalTok{ collections }\ImportTok{import}\NormalTok{ defaultdict}
+
+\KeywordTok{class}\NormalTok{ TabularQAgent:}
+    \KeywordTok{def} \FunctionTok{\_\_init\_\_}\NormalTok{(}\VariableTok{self}\NormalTok{, epsilon}\OperatorTok{=}\FloatTok{0.2}\NormalTok{, alpha}\OperatorTok{=}\FloatTok{0.1}\NormalTok{, gamma}\OperatorTok{=}\FloatTok{0.99}\NormalTok{):}
+        \VariableTok{self}\NormalTok{.epsilon }\OperatorTok{=}\NormalTok{ epsilon  }\CommentTok{\# exploration rate}
+        \VariableTok{self}\NormalTok{.alpha   }\OperatorTok{=}\NormalTok{ alpha    }\CommentTok{\# learning rate}
+        \VariableTok{self}\NormalTok{.gamma   }\OperatorTok{=}\NormalTok{ gamma    }\CommentTok{\# discount factor}
+        \CommentTok{\# Q{-}table: maps (state\_key, move\_idx) → float}
+        \CommentTok{\# defaultdict initialises unseen entries to 0.0}
+        \VariableTok{self}\NormalTok{.q }\OperatorTok{=}\NormalTok{ defaultdict(}\BuiltInTok{float}\NormalTok{)}
+
+    \KeywordTok{def}\NormalTok{ state\_key(}\VariableTok{self}\NormalTok{, state):}
+        \CommentTok{"""Convert GameState to a hashable key."""}
+        \ControlFlowTok{return}\NormalTok{ (state.cells.tobytes(),}
+\NormalTok{                state.sub\_board\_results.tobytes(),}
+\NormalTok{                state.active\_sub\_board)}
+
+    \KeywordTok{def}\NormalTok{ select\_action(}\VariableTok{self}\NormalTok{, state):}
+\NormalTok{        legal }\OperatorTok{=}\NormalTok{ get\_legal\_moves(state)}
+        \ControlFlowTok{if}\NormalTok{ random.random() }\OperatorTok{\textless{}} \VariableTok{self}\NormalTok{.epsilon:}
+            \ControlFlowTok{return}\NormalTok{ random.choice(legal)}
+\NormalTok{        key }\OperatorTok{=} \VariableTok{self}\NormalTok{.state\_key(state)}
+        \CommentTok{\# Pick the legal action with the highest Q{-}value}
+        \ControlFlowTok{return} \BuiltInTok{max}\NormalTok{(legal, key}\OperatorTok{=}\KeywordTok{lambda}\NormalTok{ m: }\VariableTok{self}\NormalTok{.q[(key, m)])}
+
+    \KeywordTok{def}\NormalTok{ update(}\VariableTok{self}\NormalTok{, state, move, reward, next\_state, done):}
+\NormalTok{        key      }\OperatorTok{=} \VariableTok{self}\NormalTok{.state\_key(state)}
+\NormalTok{        next\_key }\OperatorTok{=} \VariableTok{self}\NormalTok{.state\_key(next\_state)}
+\NormalTok{        current\_q }\OperatorTok{=} \VariableTok{self}\NormalTok{.q[(key, move)]}
+
+        \ControlFlowTok{if}\NormalTok{ done:}
+\NormalTok{            target }\OperatorTok{=}\NormalTok{ reward}
+        \ControlFlowTok{else}\NormalTok{:}
+\NormalTok{            legal\_next }\OperatorTok{=}\NormalTok{ get\_legal\_moves(next\_state)}
+            \ControlFlowTok{if} \KeywordTok{not}\NormalTok{ legal\_next:}
+\NormalTok{                target }\OperatorTok{=}\NormalTok{ reward}
+            \ControlFlowTok{else}\NormalTok{:}
+\NormalTok{                best\_next }\OperatorTok{=} \BuiltInTok{max}\NormalTok{(}\VariableTok{self}\NormalTok{.q[(next\_key, m)] }\ControlFlowTok{for}\NormalTok{ m }\KeywordTok{in}\NormalTok{ legal\_next)}
+\NormalTok{                target }\OperatorTok{=}\NormalTok{ reward }\OperatorTok{+} \VariableTok{self}\NormalTok{.gamma }\OperatorTok{*}\NormalTok{ best\_next}
+
+        \CommentTok{\# TD update}
+        \VariableTok{self}\NormalTok{.q[(key, move)] }\OperatorTok{+=} \VariableTok{self}\NormalTok{.alpha }\OperatorTok{*}\NormalTok{ (target }\OperatorTok{{-}}\NormalTok{ current\_q)}
+\end{Highlighting}
+\end{Shaded}
+
+\hypertarget{training-loop}{%
+\subsubsection{Training loop}\label{training-loop}}
+
+To train, we run self-play games where one agent plays as X and a copy
+(or a random agent) plays as O. After each move, we compute a reward and
+update:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{def}\NormalTok{ play\_training\_game(agent\_x, agent\_o, reward\_win}\OperatorTok{=}\FloatTok{1.0}\NormalTok{, reward\_loss}\OperatorTok{={-}}\FloatTok{1.0}\NormalTok{, reward\_draw}\OperatorTok{=}\FloatTok{0.0}\NormalTok{):}
+    \CommentTok{"""Play one game and update both agents. Returns winner."""}
+\NormalTok{    state }\OperatorTok{=}\NormalTok{ GameState()}
+    \CommentTok{\# Track (state, move) pairs so we can do the final{-}outcome update}
+\NormalTok{    trajectory\_x }\OperatorTok{=}\NormalTok{ []}
+\NormalTok{    trajectory\_o }\OperatorTok{=}\NormalTok{ []}
+
+    \ControlFlowTok{while} \KeywordTok{not}\NormalTok{ state.is\_terminal:}
+        \ControlFlowTok{if}\NormalTok{ state.current\_player }\OperatorTok{==} \DecValTok{1}\NormalTok{:   }\CommentTok{\# X\textquotesingle{}s turn}
+\NormalTok{            move }\OperatorTok{=}\NormalTok{ agent\_x.select\_action(state)}
+\NormalTok{            trajectory\_x.append((state, move))}
+        \ControlFlowTok{else}\NormalTok{:                           }\CommentTok{\# O\textquotesingle{}s turn}
+\NormalTok{            move }\OperatorTok{=}\NormalTok{ agent\_o.select\_action(state)}
+\NormalTok{            trajectory\_o.append((state, move))}
+\NormalTok{        state }\OperatorTok{=}\NormalTok{ apply\_move(state, move)}
+
+    \CommentTok{\# Assign terminal rewards}
+    \ControlFlowTok{if}\NormalTok{ state.winner }\OperatorTok{==} \DecValTok{1}\NormalTok{:}
+\NormalTok{        rx, ro }\OperatorTok{=}\NormalTok{ reward\_win, reward\_loss}
+    \ControlFlowTok{elif}\NormalTok{ state.winner }\OperatorTok{==} \OperatorTok{{-}}\DecValTok{1}\NormalTok{:}
+\NormalTok{        rx, ro }\OperatorTok{=}\NormalTok{ reward\_loss, reward\_win}
+    \ControlFlowTok{else}\NormalTok{:}
+\NormalTok{        rx }\OperatorTok{=}\NormalTok{ ro }\OperatorTok{=}\NormalTok{ reward\_draw}
+
+    \CommentTok{\# Update X\textquotesingle{}s trajectory (only terminal reward — no bootstrapping at end)}
+    \ControlFlowTok{for}\NormalTok{ s, m }\KeywordTok{in} \BuiltInTok{reversed}\NormalTok{(trajectory\_x):}
+\NormalTok{        agent\_x.update(s, m, rx, state, done}\OperatorTok{=}\VariableTok{True}\NormalTok{)}
+\NormalTok{        rx }\OperatorTok{*=}\NormalTok{ agent\_x.gamma  }\CommentTok{\# discount backward through the trajectory}
+
+    \ControlFlowTok{for}\NormalTok{ s, m }\KeywordTok{in} \BuiltInTok{reversed}\NormalTok{(trajectory\_o):}
+\NormalTok{        agent\_o.update(s, m, ro, state, done}\OperatorTok{=}\VariableTok{True}\NormalTok{)}
+\NormalTok{        ro }\OperatorTok{*=}\NormalTok{ agent\_o.gamma}
+
+    \ControlFlowTok{return}\NormalTok{ state.winner}
+\end{Highlighting}
+\end{Shaded}
+
+\hypertarget{evaluation}{%
+\subsubsection{Evaluation}\label{evaluation}}
+
+After training, we measure win rate against a random agent:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{def}\NormalTok{ evaluate\_vs\_random(agent, n\_games}\OperatorTok{=}\DecValTok{200}\NormalTok{, play\_as}\OperatorTok{=}\DecValTok{1}\NormalTok{):}
+    \CommentTok{"""Returns (win\_rate, draw\_rate, loss\_rate)."""}
+\NormalTok{    wins }\OperatorTok{=}\NormalTok{ draws }\OperatorTok{=}\NormalTok{ losses }\OperatorTok{=} \DecValTok{0}
+    \ControlFlowTok{for}\NormalTok{ seed }\KeywordTok{in} \BuiltInTok{range}\NormalTok{(n\_games):}
+\NormalTok{        random.seed(seed)}
+\NormalTok{        state }\OperatorTok{=}\NormalTok{ GameState()}
+        \ControlFlowTok{while} \KeywordTok{not}\NormalTok{ state.is\_terminal:}
+            \ControlFlowTok{if}\NormalTok{ state.current\_player }\OperatorTok{==}\NormalTok{ play\_as:}
+\NormalTok{                move }\OperatorTok{=}\NormalTok{ agent.select\_action(state)}
+            \ControlFlowTok{else}\NormalTok{:}
+\NormalTok{                move }\OperatorTok{=}\NormalTok{ random.choice(get\_legal\_moves(state))}
+\NormalTok{            state }\OperatorTok{=}\NormalTok{ apply\_move(state, move)}
+        \ControlFlowTok{if}\NormalTok{ state.winner }\OperatorTok{==}\NormalTok{ play\_as:}
+\NormalTok{            wins }\OperatorTok{+=} \DecValTok{1}
+        \ControlFlowTok{elif}\NormalTok{ state.winner }\OperatorTok{==} \DecValTok{0}\NormalTok{:}
+\NormalTok{            draws }\OperatorTok{+=} \DecValTok{1}
+        \ControlFlowTok{else}\NormalTok{:}
+\NormalTok{            losses }\OperatorTok{+=} \DecValTok{1}
+\NormalTok{    total }\OperatorTok{=}\NormalTok{ n\_games}
+    \ControlFlowTok{return}\NormalTok{ wins}\OperatorTok{/}\NormalTok{total, draws}\OperatorTok{/}\NormalTok{total, losses}\OperatorTok{/}\NormalTok{total}
+\end{Highlighting}
+\end{Shaded}
+
+\hypertarget{results}{%
+\subsubsection{Results}\label{results}}
+
+Training the tabular agent for 5,000 games:
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\NormalTok{agent\_x }\OperatorTok{=}\NormalTok{ TabularQAgent(epsilon}\OperatorTok{=}\FloatTok{0.3}\NormalTok{, alpha}\OperatorTok{=}\FloatTok{0.1}\NormalTok{, gamma}\OperatorTok{=}\FloatTok{0.99}\NormalTok{)}
+\NormalTok{agent\_o }\OperatorTok{=}\NormalTok{ TabularQAgent(epsilon}\OperatorTok{=}\FloatTok{0.3}\NormalTok{, alpha}\OperatorTok{=}\FloatTok{0.1}\NormalTok{, gamma}\OperatorTok{=}\FloatTok{0.99}\NormalTok{)}
+
+\ControlFlowTok{for}\NormalTok{ episode }\KeywordTok{in} \BuiltInTok{range}\NormalTok{(}\DecValTok{5000}\NormalTok{):}
+    \CommentTok{\# Decay exploration over time}
+\NormalTok{    eps }\OperatorTok{=} \BuiltInTok{max}\NormalTok{(}\FloatTok{0.05}\NormalTok{, }\FloatTok{0.3} \OperatorTok{*}\NormalTok{ (}\DecValTok{1} \OperatorTok{{-}}\NormalTok{ episode }\OperatorTok{/} \DecValTok{5000}\NormalTok{))}
+\NormalTok{    agent\_x.epsilon }\OperatorTok{=}\NormalTok{ agent\_o.epsilon }\OperatorTok{=}\NormalTok{ eps}
+\NormalTok{    play\_training\_game(agent\_x, agent\_o)}
+
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"Q{-}table size: }\SpecialCharTok{\{}\BuiltInTok{len}\NormalTok{(agent\_x.q)}\SpecialCharTok{:,\}}\SpecialStringTok{ entries"}\NormalTok{)}
+\NormalTok{wr, dr, lr }\OperatorTok{=}\NormalTok{ evaluate\_vs\_random(agent\_x)}
+\BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"Win/Draw/Loss vs random: }\SpecialCharTok{\{wr:.1\%\}}\SpecialStringTok{ / }\SpecialCharTok{\{dr:.1\%\}}\SpecialStringTok{ / }\SpecialCharTok{\{lr:.1\%\}}\SpecialStringTok{"}\NormalTok{)}
+\end{Highlighting}
+\end{Shaded}
+
+Typical output:
+
+\begin{verbatim}
+Q-table size: 142,847 entries
+Win/Draw/Loss vs random: 54.0% / 7.5% / 38.5%
+\end{verbatim}
+
+The agent visited 142,847 (state, move) pairs across 5,000 games. That
+is a tiny fraction of the full state space. Against a random opponent,
+it manages 54\% wins --- slightly better than the \textasciitilde50\%
+that random play achieves. It has not generalised at all to positions it
+hasn't seen.
+
+More training makes this worse, not better: the Q-table grows linearly
+with games played, memory usage climbs, and the win rate plateaus
+because new games keep visiting new states that share no information
+with visited ones.
+
+\textbf{The fundamental problem:} tabular methods cannot generalise.
+Seeing position A tells you nothing about position B, even if they
+differ by only one move. For UTTT, nearly every position encountered is
+novel.
+
+\hypertarget{neural-q-learning-function-approximation}{%
+\subsection{2. Neural Q-Learning: Function
+Approximation}\label{neural-q-learning-function-approximation}}
+
+The fix is to replace the Q-table with a neural network that maps board
+states to Q-values. The network can generalise --- positions that look
+similar (as tensors) will receive similar Q-value estimates, even if
+they have never been seen before.
+
+We use the 7-channel \texttt{encode\_state} tensor from P1 as input and
+output 81 Q-values, one per possible move.
+
+\hypertarget{the-q-network}{%
+\subsubsection{The Q-Network}\label{the-q-network}}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\ImportTok{import}\NormalTok{ torch}
+\ImportTok{import}\NormalTok{ torch.nn }\ImportTok{as}\NormalTok{ nn}
+\ImportTok{import}\NormalTok{ torch.nn.functional }\ImportTok{as}\NormalTok{ F}
+
+\KeywordTok{class}\NormalTok{ QNetwork(nn.Module):}
+    \KeywordTok{def} \FunctionTok{\_\_init\_\_}\NormalTok{(}\VariableTok{self}\NormalTok{):}
+        \BuiltInTok{super}\NormalTok{().}\FunctionTok{\_\_init\_\_}\NormalTok{()}
+        \CommentTok{\# 3 conv layers over the (7, 9, 9) input}
+        \VariableTok{self}\NormalTok{.conv }\OperatorTok{=}\NormalTok{ nn.Sequential(}
+\NormalTok{            nn.Conv2d(}\DecValTok{7}\NormalTok{,  }\DecValTok{32}\NormalTok{, kernel\_size}\OperatorTok{=}\DecValTok{3}\NormalTok{, padding}\OperatorTok{=}\DecValTok{1}\NormalTok{), nn.ReLU(),}
+\NormalTok{            nn.Conv2d(}\DecValTok{32}\NormalTok{, }\DecValTok{64}\NormalTok{, kernel\_size}\OperatorTok{=}\DecValTok{3}\NormalTok{, padding}\OperatorTok{=}\DecValTok{1}\NormalTok{), nn.ReLU(),}
+\NormalTok{            nn.Conv2d(}\DecValTok{64}\NormalTok{, }\DecValTok{64}\NormalTok{, kernel\_size}\OperatorTok{=}\DecValTok{3}\NormalTok{, padding}\OperatorTok{=}\DecValTok{1}\NormalTok{), nn.ReLU(),}
+\NormalTok{        )}
+        \CommentTok{\# Fully connected head: 64*9*9 = 5184 → 256 → 81}
+        \VariableTok{self}\NormalTok{.fc }\OperatorTok{=}\NormalTok{ nn.Sequential(}
+\NormalTok{            nn.Flatten(),}
+\NormalTok{            nn.Linear(}\DecValTok{64} \OperatorTok{*} \DecValTok{9} \OperatorTok{*} \DecValTok{9}\NormalTok{, }\DecValTok{256}\NormalTok{), nn.ReLU(),}
+\NormalTok{            nn.Linear(}\DecValTok{256}\NormalTok{, }\DecValTok{81}\NormalTok{),}
+\NormalTok{        )}
+
+    \KeywordTok{def}\NormalTok{ forward(}\VariableTok{self}\NormalTok{, x):}
+        \ControlFlowTok{return} \VariableTok{self}\NormalTok{.fc(}\VariableTok{self}\NormalTok{.conv(x))}
+\end{Highlighting}
+\end{Shaded}
+
+The convolutional layers are appropriate here because the board has
+spatial structure: the 3×3 arrangement of sub-boards, and the 3×3 cells
+within each sub-board, both matter. A convolutional filter can detect
+local patterns (a row in a sub-board, a diagonal) regardless of where on
+the 9×9 grid they appear.
+
+\hypertarget{the-dqn-agent}{%
+\subsubsection{The DQN Agent}\label{the-dqn-agent}}
+
+Neural Q-learning (DQN) adds two key ingredients over plain Q-learning:
+an \textbf{experience replay buffer} that stores past transitions and
+samples from them randomly, and a \textbf{target network} that provides
+stable Q-value targets during training.
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\ImportTok{from}\NormalTok{ collections }\ImportTok{import}\NormalTok{ deque}
+
+\KeywordTok{class}\NormalTok{ ReplayBuffer:}
+    \KeywordTok{def} \FunctionTok{\_\_init\_\_}\NormalTok{(}\VariableTok{self}\NormalTok{, capacity}\OperatorTok{=}\DecValTok{50\_000}\NormalTok{):}
+        \VariableTok{self}\NormalTok{.}\BuiltInTok{buffer} \OperatorTok{=}\NormalTok{ deque(maxlen}\OperatorTok{=}\NormalTok{capacity)}
+
+    \KeywordTok{def}\NormalTok{ push(}\VariableTok{self}\NormalTok{, state\_tensor, move, reward, next\_tensor, done, legal\_mask):}
+        \VariableTok{self}\NormalTok{.}\BuiltInTok{buffer}\NormalTok{.append((state\_tensor, move, reward, next\_tensor, done, legal\_mask))}
+
+    \KeywordTok{def}\NormalTok{ sample(}\VariableTok{self}\NormalTok{, batch\_size):}
+\NormalTok{        batch }\OperatorTok{=}\NormalTok{ random.sample(}\VariableTok{self}\NormalTok{.}\BuiltInTok{buffer}\NormalTok{, batch\_size)}
+\NormalTok{        states, moves, rewards, nexts, dones, masks }\OperatorTok{=} \BuiltInTok{zip}\NormalTok{(}\OperatorTok{*}\NormalTok{batch)}
+        \ControlFlowTok{return}\NormalTok{ (torch.stack(states),}
+\NormalTok{                torch.tensor(moves,   dtype}\OperatorTok{=}\NormalTok{torch.}\BuiltInTok{long}\NormalTok{),}
+\NormalTok{                torch.tensor(rewards, dtype}\OperatorTok{=}\NormalTok{torch.float32),}
+\NormalTok{                torch.stack(nexts),}
+\NormalTok{                torch.tensor(dones,   dtype}\OperatorTok{=}\NormalTok{torch.float32),}
+\NormalTok{                torch.stack(masks))}
+
+    \KeywordTok{def} \FunctionTok{\_\_len\_\_}\NormalTok{(}\VariableTok{self}\NormalTok{):}
+        \ControlFlowTok{return} \BuiltInTok{len}\NormalTok{(}\VariableTok{self}\NormalTok{.}\BuiltInTok{buffer}\NormalTok{)}
+
+
+\KeywordTok{class}\NormalTok{ DQNAgent:}
+    \KeywordTok{def} \FunctionTok{\_\_init\_\_}\NormalTok{(}\VariableTok{self}\NormalTok{, lr}\OperatorTok{=}\FloatTok{1e{-}3}\NormalTok{, gamma}\OperatorTok{=}\FloatTok{0.99}\NormalTok{, epsilon}\OperatorTok{=}\FloatTok{0.5}\NormalTok{,}
+\NormalTok{                 batch\_size}\OperatorTok{=}\DecValTok{256}\NormalTok{, target\_update\_freq}\OperatorTok{=}\DecValTok{500}\NormalTok{):}
+        \VariableTok{self}\NormalTok{.online\_net  }\OperatorTok{=}\NormalTok{ QNetwork()}
+        \VariableTok{self}\NormalTok{.target\_net  }\OperatorTok{=}\NormalTok{ QNetwork()}
+        \VariableTok{self}\NormalTok{.target\_net.load\_state\_dict(}\VariableTok{self}\NormalTok{.online\_net.state\_dict())}
+        \VariableTok{self}\NormalTok{.target\_net.}\BuiltInTok{eval}\NormalTok{()}
+
+        \VariableTok{self}\NormalTok{.optimizer   }\OperatorTok{=}\NormalTok{ torch.optim.Adam(}\VariableTok{self}\NormalTok{.online\_net.parameters(), lr}\OperatorTok{=}\NormalTok{lr)}
+        \VariableTok{self}\NormalTok{.}\BuiltInTok{buffer}      \OperatorTok{=}\NormalTok{ ReplayBuffer()}
+        \VariableTok{self}\NormalTok{.gamma       }\OperatorTok{=}\NormalTok{ gamma}
+        \VariableTok{self}\NormalTok{.epsilon     }\OperatorTok{=}\NormalTok{ epsilon}
+        \VariableTok{self}\NormalTok{.batch\_size  }\OperatorTok{=}\NormalTok{ batch\_size}
+        \VariableTok{self}\NormalTok{.target\_update\_freq }\OperatorTok{=}\NormalTok{ target\_update\_freq}
+        \VariableTok{self}\NormalTok{.steps       }\OperatorTok{=} \DecValTok{0}
+
+    \AttributeTok{@torch.no\_grad}\NormalTok{()}
+    \KeywordTok{def}\NormalTok{ select\_action(}\VariableTok{self}\NormalTok{, state):}
+\NormalTok{        legal }\OperatorTok{=}\NormalTok{ get\_legal\_moves(state)}
+        \ControlFlowTok{if}\NormalTok{ random.random() }\OperatorTok{\textless{}} \VariableTok{self}\NormalTok{.epsilon:}
+            \ControlFlowTok{return}\NormalTok{ random.choice(legal)}
+        \CommentTok{\# Convert state to tensor}
+\NormalTok{        s }\OperatorTok{=}\NormalTok{ torch.tensor(encode\_state(state)).unsqueeze(}\DecValTok{0}\NormalTok{)  }\CommentTok{\# (1, 7, 9, 9)}
+\NormalTok{        q\_vals }\OperatorTok{=} \VariableTok{self}\NormalTok{.online\_net(s).squeeze(}\DecValTok{0}\NormalTok{)  }\CommentTok{\# (81,)}
+        \CommentTok{\# Mask illegal moves to {-}inf before argmax}
+\NormalTok{        mask }\OperatorTok{=}\NormalTok{ torch.tensor(get\_legal\_move\_mask(state))}
+\NormalTok{        q\_vals }\OperatorTok{=}\NormalTok{ q\_vals.masked\_fill(mask }\OperatorTok{==} \DecValTok{0}\NormalTok{, }\BuiltInTok{float}\NormalTok{(}\StringTok{\textquotesingle{}{-}inf\textquotesingle{}}\NormalTok{))}
+        \ControlFlowTok{return} \BuiltInTok{int}\NormalTok{(q\_vals.argmax())}
+
+    \KeywordTok{def}\NormalTok{ store(}\VariableTok{self}\NormalTok{, state, move, reward, next\_state, done):}
+\NormalTok{        s  }\OperatorTok{=}\NormalTok{ torch.tensor(encode\_state(state))}
+\NormalTok{        ns }\OperatorTok{=}\NormalTok{ torch.tensor(encode\_state(next\_state))}
+\NormalTok{        mask }\OperatorTok{=}\NormalTok{ torch.tensor(get\_legal\_move\_mask(next\_state))}
+        \VariableTok{self}\NormalTok{.}\BuiltInTok{buffer}\NormalTok{.push(s, move, reward, ns, done, mask)}
+
+    \KeywordTok{def}\NormalTok{ train\_step(}\VariableTok{self}\NormalTok{):}
+        \ControlFlowTok{if} \BuiltInTok{len}\NormalTok{(}\VariableTok{self}\NormalTok{.}\BuiltInTok{buffer}\NormalTok{) }\OperatorTok{\textless{}} \VariableTok{self}\NormalTok{.batch\_size:}
+            \ControlFlowTok{return} \VariableTok{None}
+
+\NormalTok{        states, moves, rewards, nexts, dones, masks }\OperatorTok{=} \VariableTok{self}\NormalTok{.}\BuiltInTok{buffer}\NormalTok{.sample(}\VariableTok{self}\NormalTok{.batch\_size)}
+
+        \CommentTok{\# Current Q{-}values for the actions taken}
+\NormalTok{        q\_current }\OperatorTok{=} \VariableTok{self}\NormalTok{.online\_net(states).gather(}\DecValTok{1}\NormalTok{, moves.unsqueeze(}\DecValTok{1}\NormalTok{)).squeeze(}\DecValTok{1}\NormalTok{)}
+
+        \CommentTok{\# Target Q{-}values (using target network)}
+        \ControlFlowTok{with}\NormalTok{ torch.no\_grad():}
+\NormalTok{            q\_next }\OperatorTok{=} \VariableTok{self}\NormalTok{.target\_net(nexts)}
+\NormalTok{            q\_next }\OperatorTok{=}\NormalTok{ q\_next.masked\_fill(masks }\OperatorTok{==} \DecValTok{0}\NormalTok{, }\BuiltInTok{float}\NormalTok{(}\StringTok{\textquotesingle{}{-}inf\textquotesingle{}}\NormalTok{))}
+\NormalTok{            q\_next\_max }\OperatorTok{=}\NormalTok{ q\_next.}\BuiltInTok{max}\NormalTok{(dim}\OperatorTok{=}\DecValTok{1}\NormalTok{).values}
+\NormalTok{            q\_next\_max[q\_next\_max }\OperatorTok{==} \BuiltInTok{float}\NormalTok{(}\StringTok{\textquotesingle{}{-}inf\textquotesingle{}}\NormalTok{)] }\OperatorTok{=} \FloatTok{0.0}  \CommentTok{\# terminal states}
+\NormalTok{            targets }\OperatorTok{=}\NormalTok{ rewards }\OperatorTok{+} \VariableTok{self}\NormalTok{.gamma }\OperatorTok{*}\NormalTok{ q\_next\_max }\OperatorTok{*}\NormalTok{ (}\DecValTok{1} \OperatorTok{{-}}\NormalTok{ dones)}
+
+\NormalTok{        loss }\OperatorTok{=}\NormalTok{ F.mse\_loss(q\_current, targets)}
+        \VariableTok{self}\NormalTok{.optimizer.zero\_grad()}
+\NormalTok{        loss.backward()}
+\NormalTok{        torch.nn.utils.clip\_grad\_norm\_(}\VariableTok{self}\NormalTok{.online\_net.parameters(), }\FloatTok{1.0}\NormalTok{)}
+        \VariableTok{self}\NormalTok{.optimizer.step()}
+
+        \VariableTok{self}\NormalTok{.steps }\OperatorTok{+=} \DecValTok{1}
+        \ControlFlowTok{if} \VariableTok{self}\NormalTok{.steps }\OperatorTok{\%} \VariableTok{self}\NormalTok{.target\_update\_freq }\OperatorTok{==} \DecValTok{0}\NormalTok{:}
+            \VariableTok{self}\NormalTok{.target\_net.load\_state\_dict(}\VariableTok{self}\NormalTok{.online\_net.state\_dict())}
+
+        \ControlFlowTok{return}\NormalTok{ loss.item()}
+\end{Highlighting}
+\end{Shaded}
+
+\hypertarget{training-loop-1}{%
+\subsubsection{Training Loop}\label{training-loop-1}}
+
+\begin{Shaded}
+\begin{Highlighting}[]
+\KeywordTok{def}\NormalTok{ train\_dqn(agent, n\_episodes}\OperatorTok{=}\DecValTok{20\_000}\NormalTok{, eval\_every}\OperatorTok{=}\DecValTok{1000}\NormalTok{):}
+\NormalTok{    results }\OperatorTok{=}\NormalTok{ []}
+
+    \ControlFlowTok{for}\NormalTok{ episode }\KeywordTok{in} \BuiltInTok{range}\NormalTok{(n\_episodes):}
+        \CommentTok{\# Decay epsilon from 0.5 to 0.05}
+\NormalTok{        agent.epsilon }\OperatorTok{=} \BuiltInTok{max}\NormalTok{(}\FloatTok{0.05}\NormalTok{, }\FloatTok{0.5} \OperatorTok{{-}} \FloatTok{0.45} \OperatorTok{*}\NormalTok{ (episode }\OperatorTok{/}\NormalTok{ n\_episodes))}
+
+\NormalTok{        state }\OperatorTok{=}\NormalTok{ GameState()}
+        \ControlFlowTok{while} \KeywordTok{not}\NormalTok{ state.is\_terminal:}
+\NormalTok{            move }\OperatorTok{=}\NormalTok{ agent.select\_action(state)}
+\NormalTok{            prev\_state }\OperatorTok{=}\NormalTok{ state}
+\NormalTok{            state }\OperatorTok{=}\NormalTok{ apply\_move(state, move)}
+
+            \CommentTok{\# Intermediate reward: 0.0 (only terminal states carry signal)}
+            \CommentTok{\# Give a small shaping reward for winning a sub{-}board}
+\NormalTok{            intermediate }\OperatorTok{=} \FloatTok{0.0}
+\NormalTok{            sb\_won }\OperatorTok{=}\NormalTok{ state.sub\_board\_results[decode\_move(move)[}\DecValTok{0}\NormalTok{]]}
+            \ControlFlowTok{if}\NormalTok{ sb\_won }\OperatorTok{==}\NormalTok{ prev\_state.current\_player:}
+\NormalTok{                intermediate }\OperatorTok{=} \FloatTok{0.05}
+
+\NormalTok{            done }\OperatorTok{=}\NormalTok{ state.is\_terminal}
+            \ControlFlowTok{if}\NormalTok{ done:}
+\NormalTok{                reward }\OperatorTok{=} \FloatTok{1.0} \ControlFlowTok{if}\NormalTok{ state.winner }\OperatorTok{==}\NormalTok{ prev\_state.current\_player }\ControlFlowTok{else} \OperatorTok{\textbackslash{}}
+                        \OperatorTok{{-}}\FloatTok{1.0} \ControlFlowTok{if}\NormalTok{ state.winner }\OperatorTok{==} \OperatorTok{{-}}\NormalTok{prev\_state.current\_player }\ControlFlowTok{else} \FloatTok{0.0}
+            \ControlFlowTok{else}\NormalTok{:}
+\NormalTok{                reward }\OperatorTok{=}\NormalTok{ intermediate}
+
+            \CommentTok{\# The opponent also plays; from the agent\textquotesingle{}s perspective that is}
+            \CommentTok{\# an environment transition, not a separate agent step.}
+            \CommentTok{\# We store the agent\textquotesingle{}s own transitions only.}
+\NormalTok{            agent.store(prev\_state, move, reward, state, done)}
+\NormalTok{            agent.train\_step()}
+
+            \CommentTok{\# Opponent plays a random move (we train as both X and O)}
+            \ControlFlowTok{if} \KeywordTok{not}\NormalTok{ state.is\_terminal:}
+\NormalTok{                opp\_move }\OperatorTok{=}\NormalTok{ random.choice(get\_legal\_moves(state))}
+\NormalTok{                prev\_opp }\OperatorTok{=}\NormalTok{ state}
+\NormalTok{                state }\OperatorTok{=}\NormalTok{ apply\_move(state, opp\_move)}
+                \CommentTok{\# Store opponent transition from opponent\textquotesingle{}s perspective}
+\NormalTok{                done }\OperatorTok{=}\NormalTok{ state.is\_terminal}
+\NormalTok{                opp\_reward }\OperatorTok{=} \FloatTok{1.0} \ControlFlowTok{if}\NormalTok{ state.winner }\OperatorTok{==}\NormalTok{ prev\_opp.current\_player }\ControlFlowTok{else} \OperatorTok{\textbackslash{}}
+                             \OperatorTok{{-}}\FloatTok{1.0} \ControlFlowTok{if}\NormalTok{ state.winner }\OperatorTok{!=} \DecValTok{0} \ControlFlowTok{else} \FloatTok{0.0}
+\NormalTok{                agent.store(prev\_opp, opp\_move, opp\_reward, state, done)}
+\NormalTok{                agent.train\_step()}
+
+        \ControlFlowTok{if}\NormalTok{ (episode }\OperatorTok{+} \DecValTok{1}\NormalTok{) }\OperatorTok{\%}\NormalTok{ eval\_every }\OperatorTok{==} \DecValTok{0}\NormalTok{:}
+\NormalTok{            agent.epsilon }\OperatorTok{=} \FloatTok{0.0}   \CommentTok{\# greedy eval}
+\NormalTok{            wr, dr, lr }\OperatorTok{=}\NormalTok{ evaluate\_vs\_random(agent, n\_games}\OperatorTok{=}\DecValTok{200}\NormalTok{)}
+\NormalTok{            agent.epsilon }\OperatorTok{=} \BuiltInTok{max}\NormalTok{(}\FloatTok{0.05}\NormalTok{, }\FloatTok{0.5} \OperatorTok{{-}} \FloatTok{0.45} \OperatorTok{*}\NormalTok{ (episode }\OperatorTok{/}\NormalTok{ n\_episodes))}
+\NormalTok{            results.append((episode }\OperatorTok{+} \DecValTok{1}\NormalTok{, wr, dr, lr))}
+            \BuiltInTok{print}\NormalTok{(}\SpecialStringTok{f"Ep }\SpecialCharTok{\{}\NormalTok{episode}\OperatorTok{+}\DecValTok{1}\SpecialCharTok{:6d\}}\SpecialStringTok{ | W }\SpecialCharTok{\{wr:.1\%\}}\SpecialStringTok{  D }\SpecialCharTok{\{dr:.1\%\}}\SpecialStringTok{  L }\SpecialCharTok{\{lr:.1\%\}}\SpecialStringTok{"}\NormalTok{)}
+
+    \ControlFlowTok{return}\NormalTok{ results}
+\end{Highlighting}
+\end{Shaded}
+
+\hypertarget{results-and-the-ceiling}{%
+\subsubsection{Results and the Ceiling}\label{results-and-the-ceiling}}
+
+Training for 20,000 episodes (roughly 15 minutes on a CPU):
+
+\begin{verbatim}
+Ep  1000 | W 56.5%  D 6.0%  L 37.5%
+Ep  5000 | W 64.0%  D 7.0%  L 29.0%
+Ep 10000 | W 70.5%  D 8.5%  L 21.0%
+Ep 20000 | W 73.5%  D 8.5%  L 18.0%
+\end{verbatim}
+
+Progress is real but slow, and the curve flattens. Several problems
+compound:
+
+\textbf{Sparse rewards.} The only strong signal is the terminal
+win/loss. Every move in a 40-move game receives reward 0, and only the
+last receives ±1. The network must credit 40 decisions from a single
+scalar --- exactly the credit-assignment problem T2 described. (The
+small sub-board shaping reward helps slightly but does not solve it.)
+
+\textbf{No lookahead.} The Q-network evaluates each position in
+isolation. It cannot reason about sequences of moves. A position that
+looks neutral might be a forced win in three moves --- but the network
+cannot see that without searching.
+
+\textbf{Single-opponent training.} Training against a random opponent
+caps the level of play the agent needs to beat. The agent learns to
+exploit random mistakes but never learns to handle a competent opponent.
+
+\textbf{Bootstrapping instability.} TD updates bootstrap from the target
+network, which is only a slightly older copy of the online network. In
+large action spaces with sparse rewards, this creates noisy, unstable
+Q-value estimates.
+
+\hypertarget{what-would-fix-this}{%
+\subsection{3. What Would Fix This}\label{what-would-fix-this}}
+
+The three problems above have three corresponding answers, all from the
+AlphaZero playbook:
+
+\textbf{Sparse rewards → MCTS search targets.} Instead of training on
+terminal game outcomes, AlphaZero trains the network on the output of a
+Monte Carlo tree search. The MCTS provides a local, dense signal: ``at
+this specific position, these specific moves are worth exploring.'' The
+network learns from search, not from game outcomes.
+
+\textbf{No lookahead → explicit tree search.} MCTS builds a search tree
+at inference time. The network provides value and policy estimates at
+each node; the tree search does the lookahead. The separation of ``what
+does this position look like?'' (network) and ``where should I search?''
+(MCTS) is the key architectural insight.
+
+\textbf{Single-opponent training → self-play.} AlphaZero trains
+exclusively against itself. As the network improves, the opponent
+improves at the same rate. The agent always faces a competent opponent,
+and the training distribution continuously reflects the current level of
+play.
+
+The neural Q-network we built is not wasted work. The \texttt{QNetwork}
+architecture --- convolutional layers over the 7-channel tensor, fully
+connected head --- is essentially the same as AlphaZero's tower, minus
+the dual-head output (value + policy) and the residual connections. P3
+will take this architecture, add residual blocks and the dual head, wire
+it to MCTS, and train it via self-play.
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\emph{Theory: \href{essay1b_rl_background.md}{T2 --- The RL Landscape}
+explains TD learning, Q-learning, and the credit-assignment problem that
+motivates what comes next. \href{essay1c_bandits_mcts_intro.md}{T3 ---
+From Bandits to Trees} covers the UCB and PUCT theory that P3
+implements.}
+
+\begin{center}\rule{0.5\linewidth}{0.5pt}\end{center}
+
+\emph{Full notebook: A companion notebook for P2 (coming soon) will
+include the full training run, loss curves, visualisations of learned
+Q-values, and a head-to-head tournament between the tabular agent, the
+DQN agent, and random play.}

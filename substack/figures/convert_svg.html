@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head><title>SVG to PNG converter</title></head>
+<body style="background:#111;color:#eee;font-family:monospace;padding:20px">
+<h3>SVG → PNG</h3>
+<canvas id="c" style="border:1px solid #444"></canvas>
+<br><br>
+<a id="dl" style="color:#4fc3f7">Download PNG</a>
+<br><br>
+<pre id="log">Loading...</pre>
+<script>
+const svg = new XMLSerializer().serializeToString(document.createElementNS('http://www.w3.org/2000/svg','svg'));
+// Load the SVG file
+fetch('fig3_midgame.svg')
+  .then(r => r.text())
+  .then(svgText => {
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    const blob = new Blob([svgText], {type: 'image/svg+xml'});
+    const url = URL.createObjectURL(blob);
+    img.onload = function() {
+      canvas.width = img.width || 700;
+      canvas.height = img.height || 570;
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      const pngUrl = canvas.toDataURL('image/png');
+      const dl = document.getElementById('dl');
+      dl.href = pngUrl;
+      dl.download = 'fig3_midgame.png';
+      document.getElementById('log').textContent = 'Done! PNG data URL length: ' + pngUrl.length + '\n\nData URL (first 200 chars):\n' + pngUrl.substring(0, 200);
+      // Store globally for JavaScript access
+      window._pngDataUrl = pngUrl;
+    };
+    img.onerror = e => { document.getElementById('log').textContent = 'Error: ' + e; };
+    img.src = url;
+  })
+  .catch(e => { document.getElementById('log').textContent = 'Fetch error: ' + e; });
+</script>
+</body>
+</html>

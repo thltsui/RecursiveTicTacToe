@@ -202,6 +202,31 @@ def apply_move(state: GameState, move_idx: int) -> GameState:
 
 The line `s.active_sub_board = -1 if s.sub_board_results[cell] != 0 else cell` is the entire "send your opponent" rule in one expression. The cell index within the current sub-board (`cell`) determines the next active sub-board. If `sub_board_results[cell]` is non-zero (that sub-board is decided), we set `active_sub_board = -1` to grant free choice.
 
+### Detecting Game End
+
+Game termination is handled inside `apply_move`. After every move, `check_meta_winner` inspects `sub_board_results` for a winning line. If it finds one, `apply_move` sets `is_terminal = True` and records the winner before returning the new state:
+
+```python
+meta = check_meta_winner(s.sub_board_results)
+if meta != 0:
+    s.is_terminal = True
+    s.winner = 0 if meta == 2 else meta  # 2 means global draw
+```
+
+`winner` uses the same sign convention as `current_player`: `+1` for X, `-1` for O, and `0` for a draw. There is no separate "is game over?" function to call — the flag lives on the state object, so any game loop terminates with a single check:
+
+```python
+while not state.is_terminal:
+    legal = get_legal_moves(state)
+    move  = random.choice(legal)
+    state = apply_move(state, move)
+
+# state.winner is now +1 (X wins), -1 (O wins), or 0 (draw)
+print(f"Winner: {'X' if state.winner == 1 else 'O' if state.winner == -1 else 'Draw'}")
+```
+
+Because `apply_move` always returns a fresh copy (it calls `state.copy()` at the top), the caller never mutates state and `is_terminal` is always accurate — there is no risk of a stale flag.
+
 ## 6. Encoding State as a Tensor
 
 The game state needs to be converted to a tensor for the neural network. We use 7 channels, each a 9×9 binary grid, always expressed from the perspective of the current player (so the network always sees "my pieces" in channel 0, regardless of whether the current player is X or O):
@@ -258,6 +283,22 @@ The 7 channels encode different types of information:
 - **Ch 6** — whose turn it is (a global binary flag, constant across the grid)
 
 The player-relative encoding (channels 0 and 1 flip depending on whose turn it is) means the network learns symmetrically — it always sees the board from the perspective of the player to move. Without this, the network would need to learn separate strategies for X and O.
+
+### Why explicitly encode things the network could figure out?
+
+A reasonable question: channels 2–5 are all derivable from `cells` and `active_sub_board`. Why bother computing them explicitly rather than letting the network discover them?
+
+The short answer is that "the network could figure it out in principle" and "the network will efficiently figure it out in practice" are different things.
+
+**Convolutional kernels are local.** Each 3×3 conv kernel sees a 3×3 patch of the board. A sub-board result (whether a 3×3 region is won, lost, or drawn) requires checking 8 win-lines across that region, then potentially checking three such regions in a row for the meta-board. With small kernels, the network would need several stacked layers just to propagate this information, consuming depth that could otherwise be used for strategy. Channels 2–4 hand this pre-computed summary to every position in the tensor directly, so even the very first convolutional layer can use it.
+
+**The active sub-board is the hardest to infer.** Without channel 5, the network has no signal about *where it is allowed to play*. The "send your opponent" rule is a non-local constraint — the legal region depends on the last move played, not on any feature visible at the current position. Legal move masking (channel 5 / `get_legal_move_mask`) makes this explicit and dramatically reduces the search space the network has to reason about.
+
+**Explicit features reduce sample complexity.** A network that must learn to derive sub-board outcomes from raw cells needs far more training games before those features stabilise. Handing them over pre-computed means the network can focus its capacity on learning *what to do* given known board structure, rather than spending half its expressiveness on bookkeeping. In tabular Q-learning terms, this is the difference between representing a state with all 81 cells versus a compact feature vector — fewer games needed to reach a given win rate.
+
+**The player flag enables weight sharing across sides.** Channel 6 marks whose turn it is globally. Combined with the player-relative piece encoding, this means the *same weights* handle both X and O situations. Without it, the gradient signal from X's turn and O's turn would fight each other, because a position from O's perspective looks like the "wrong player's" position from the network's standpoint.
+
+In short: the 7-channel encoding is deliberate feature engineering. Even in deep learning, telling the network what matters — rather than making it discover everything from scratch — leads to faster training, more stable learning, and better sample efficiency.
 
 <!-- Figure: figures/fig4_tensor_channels.png — "The 7 channels of encode_state after 5 moves (O to move). Channels 0 and 1 show pieces from the current player's perspective. Channel 5 highlights the active sub-board. Channel 6 is all 0 because it is O's turn." -->
 
