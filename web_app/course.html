@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ultimate Tic-Tac-Toe Web App Design -- Interactive Course</title>
+<style>
+/* ========== RESET & VARIABLES ========== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0f1117;
+  --bg-card: #181b24;
+  --bg-code: #1e222d;
+  --bg-sidebar: #14161e;
+  --border: #2a2e3b;
+  --text: #c9cdd8;
+  --text-dim: #7c8190;
+  --text-bright: #e8ecf4;
+  --accent: #6c9eff;
+  --accent-dim: #3a5a9e;
+  --accent-glow: rgba(108, 158, 255, 0.12);
+  --green: #5de4a8;
+  --orange: #f0a050;
+  --red: #f07070;
+  --purple: #b48eff;
+  --yellow: #f0d060;
+  --cyan: #60d8e8;
+  --sidebar-w: 290px;
+  --header-h: 56px;
+  --radius: 8px;
+  --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', Consolas, monospace;
+  --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+html { scroll-behavior: smooth; font-size: 15px; }
+
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.72;
+  overflow-x: hidden;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ========== HEADER ========== */
+.header {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  height: var(--header-h);
+  background: rgba(15, 17, 23, 0.88);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center;
+  padding: 0 24px;
+}
+.header-title {
+  font-size: 1.05rem; font-weight: 700; color: var(--text-bright);
+  letter-spacing: -0.02em;
+}
+.header-title span { color: var(--accent); }
+.header-burger {
+  display: none; background: none; border: none; color: var(--text);
+  font-size: 1.5rem; cursor: pointer; margin-right: 14px; padding: 4px 8px;
+}
+.header-right { margin-left: auto; font-size: 0.82rem; color: var(--text-dim); }
+
+/* ========== SIDEBAR ========== */
+.sidebar {
+  position: fixed; top: var(--header-h); left: 0; bottom: 0;
+  width: var(--sidebar-w);
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 20px 0 40px;
+  z-index: 90;
+  transition: transform 0.3s ease;
+}
+.sidebar::-webkit-scrollbar { width: 4px; }
+.sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+.sidebar .nav-group { padding: 0 16px; margin-bottom: 18px; }
+.sidebar .nav-group-label {
+  font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--text-dim); padding: 0 8px; margin-bottom: 6px;
+}
+.sidebar .nav-link {
+  display: block; padding: 6px 12px; border-radius: 6px;
+  font-size: 0.83rem; color: var(--text-dim); transition: all 0.15s;
+  cursor: pointer; line-height: 1.4;
+}
+.sidebar .nav-link:hover { color: var(--text-bright); background: rgba(108,158,255,0.06); text-decoration: none; }
+.sidebar .nav-link.active {
+  color: var(--accent); background: var(--accent-glow); font-weight: 600;
+}
+.sidebar .nav-link .ep-num {
+  display: inline-block; width: 26px; font-weight: 700;
+  font-size: 0.72rem; color: var(--accent-dim);
+}
+
+/* ========== MAIN ========== */
+.main {
+  margin-left: var(--sidebar-w);
+  margin-top: var(--header-h);
+  padding: 40px 48px 120px;
+  max-width: 880px;
+}
+
+/* ========== HERO ========== */
+.hero {
+  text-align: center; padding: 60px 20px 48px;
+}
+.hero h1 {
+  font-size: 2.4rem; font-weight: 800; color: var(--text-bright);
+  letter-spacing: -0.03em; line-height: 1.2;
+}
+.hero h1 span { color: var(--accent); }
+.hero .subtitle {
+  font-size: 1.05rem; color: var(--text-dim); margin-top: 12px; max-width: 600px;
+  margin-left: auto; margin-right: auto;
+}
+.hero .badge-row { margin-top: 20px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.badge {
+  font-size: 0.72rem; font-weight: 600; padding: 4px 12px; border-radius: 20px;
+  border: 1px solid var(--border); color: var(--text-dim); background: var(--bg-card);
+}
+.badge.green { border-color: var(--green); color: var(--green); }
+.badge.purple { border-color: var(--purple); color: var(--purple); }
+.badge.orange { border-color: var(--orange); color: var(--orange); }
+.badge.cyan { border-color: var(--cyan); color: var(--cyan); }
+
+/* ========== EPISODE SECTIONS ========== */
+.episode {
+  margin-bottom: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.episode-header {
+  padding: 16px 22px;
+  cursor: pointer;
+  display: flex; align-items: center; gap: 14px;
+  user-select: none;
+  transition: background 0.15s;
+}
+.episode-header:hover { background: rgba(108,158,255,0.04); }
+.ep-badge {
+  flex-shrink: 0;
+  width: 38px; height: 38px; border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.78rem; font-weight: 800;
+  background: var(--accent-glow); color: var(--accent);
+  border: 1px solid var(--accent-dim);
+}
+.ep-info { flex: 1; }
+.ep-info h2 { font-size: 1.05rem; font-weight: 700; color: var(--text-bright); line-height: 1.3; }
+.ep-info .ep-tagline { font-size: 0.8rem; color: var(--text-dim); margin-top: 2px; }
+.ep-chevron {
+  font-size: 1.1rem; color: var(--text-dim); transition: transform 0.25s;
+  flex-shrink: 0;
+}
+.episode.open .ep-chevron { transform: rotate(90deg); }
+
+.episode-body {
+  max-height: 0; overflow: hidden;
+  transition: max-height 0.4s ease;
+  border-top: 1px solid transparent;
+}
+.episode.open .episode-body {
+  max-height: none;
+  border-top-color: var(--border);
+}
+.episode-content { padding: 22px 26px 28px; }
+
+/* ========== TYPOGRAPHY IN EPISODES ========== */
+.episode-content h3 {
+  font-size: 1.05rem; font-weight: 700; color: var(--text-bright);
+  margin: 28px 0 10px; padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.episode-content h3:first-child { margin-top: 0; }
+
+.episode-content p { margin: 10px 0; }
+.episode-content ul, .episode-content ol {
+  margin: 10px 0 10px 20px;
+}
+.episode-content li { margin: 4px 0; }
+
+.episode-content strong { color: var(--text-bright); }
+.episode-content em { color: var(--orange); font-style: normal; }
+
+/* ========== CODE BLOCKS ========== */
+.code-block-wrapper {
+  margin: 14px 0; border-radius: var(--radius); overflow: hidden;
+  border: 1px solid var(--border);
+}
+.code-block-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 14px;
+  background: rgba(30, 34, 45, 0.8);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.72rem; color: var(--text-dim);
+}
+.code-block-header .filename { font-family: var(--mono); font-weight: 600; }
+.code-block-header .lang-badge {
+  padding: 1px 8px; border-radius: 4px;
+  background: var(--accent-glow); color: var(--accent); font-weight: 600;
+}
+pre.code-block {
+  background: var(--bg-code);
+  padding: 16px 18px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  line-height: 1.65;
+  color: var(--text);
+  margin: 0;
+}
+pre.code-block::-webkit-scrollbar { height: 6px; }
+pre.code-block::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* Syntax colors */
+.kw { color: var(--purple); }       /* keywords */
+.fn { color: var(--accent); }       /* function names */
+.st { color: var(--green); }        /* strings */
+.cm { color: #546178; font-style: italic; }  /* comments */
+.nu { color: var(--orange); }       /* numbers */
+.op { color: var(--red); }          /* operators/special */
+.ty { color: var(--cyan); }         /* types/classes */
+.dc { color: var(--yellow); }       /* decorators */
+
+/* ========== ASCII DIAGRAMS ========== */
+.diagram {
+  margin: 16px 0;
+  padding: 20px 24px;
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--text-dim);
+  overflow-x: auto;
+  white-space: pre;
+}
+.diagram .hl { color: var(--accent); font-weight: 700; }
+.diagram .hl2 { color: var(--green); font-weight: 700; }
+.diagram .hl3 { color: var(--orange); font-weight: 700; }
+.diagram .hl4 { color: var(--purple); font-weight: 700; }
+.diagram .hl5 { color: var(--red); font-weight: 700; }
+.diagram .dim { color: #3a3f52; }
+
+/* ========== CALLOUTS ========== */
+.callout {
+  margin: 16px 0; padding: 14px 18px;
+  border-radius: var(--radius);
+  border-left: 3px solid;
+  font-size: 0.88rem;
+}
+.callout.insight { background: rgba(108,158,255,0.06); border-color: var(--accent); }
+.callout.warning { background: rgba(240,160,80,0.06); border-color: var(--orange); }
+.callout.key     { background: rgba(93,228,168,0.06); border-color: var(--green); }
+.callout-label {
+  font-weight: 700; font-size: 0.75rem; text-transform: uppercase;
+  letter-spacing: 0.06em; margin-bottom: 6px;
+}
+.callout.insight .callout-label { color: var(--accent); }
+.callout.warning .callout-label { color: var(--orange); }
+.callout.key     .callout-label { color: var(--green); }
+
+/* ========== TABLE ========== */
+.styled-table {
+  width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 0.84rem;
+}
+.styled-table th {
+  text-align: left; padding: 8px 12px;
+  background: rgba(108,158,255,0.06);
+  border-bottom: 2px solid var(--border);
+  color: var(--text-bright); font-weight: 600;
+}
+.styled-table td {
+  padding: 7px 12px; border-bottom: 1px solid var(--border);
+}
+.styled-table code {
+  font-family: var(--mono); font-size: 0.8rem;
+  background: var(--bg-code); padding: 1px 5px; border-radius: 3px;
+}
+
+/* Inline code */
+.episode-content code, p code, li code, td code {
+  font-family: var(--mono); font-size: 0.84em;
+  background: var(--bg-code); padding: 1px 6px; border-radius: 4px;
+  color: var(--cyan);
+}
+
+/* ========== PROGRESS TRACK ========== */
+.progress-bar {
+  position: fixed; top: var(--header-h); left: 0; right: 0; height: 2px;
+  z-index: 99; background: transparent;
+}
+.progress-bar-fill {
+  height: 100%; background: var(--accent); width: 0%; transition: width 0.15s;
+}
+
+/* ========== RESPONSIVE ========== */
+@media (max-width: 900px) {
+  .sidebar { transform: translateX(-100%); z-index: 95; }
+  .sidebar.open { transform: translateX(0); }
+  .main { margin-left: 0; padding: 28px 18px 100px; }
+  .header-burger { display: block; }
+  .hero h1 { font-size: 1.6rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- ========== HEADER ========== -->
+<header class="header">
+  <button class="header-burger" id="burgerBtn" aria-label="Toggle navigation">&#9776;</button>
+  <div class="header-title">
+    <span>&#9670;</span> Web Dashboard &mdash; Design Course
+  </div>
+  <div class="header-right">4 episodes &middot; ~15 min read</div>
+</header>
+
+<!-- ========== PROGRESS BAR ========== -->
+<div class="progress-bar"><div class="progress-bar-fill" id="progressFill"></div></div>
+
+<!-- ========== SIDEBAR ========== -->
+<nav class="sidebar" id="sidebar">
+
+  <div class="nav-group">
+    <div class="nav-group-label">Overview</div>
+    <a class="nav-link" data-target="hero"><span class="ep-num">&nbsp;</span>Introduction</a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-label">Architecture</div>
+    <a class="nav-link" data-target="ep1"><span class="ep-num">01</span> Stateless REST API</a>
+    <a class="nav-link" data-target="ep2"><span class="ep-num">02</span> MCTS Integration</a>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-group-label">Frontend</div>
+    <a class="nav-link" data-target="ep3"><span class="ep-num">03</span> Glassmorphism UI</a>
+    <a class="nav-link" data-target="ep4"><span class="ep-num">04</span> Optimistic Updates</a>
+  </div>
+
+</nav>
+
+<!-- ========== MAIN ========== -->
+<div class="main" id="mainContent">
+
+<!-- HERO -->
+<section class="hero" id="hero">
+  <h1>Building the <span>Web Dashboard</span><br>for AlphaZero</h1>
+  <p class="subtitle">A deep dive into the architecture, design, and implementation of the Ultimate Tic-Tac-Toe interactive web application.</p>
+  <div class="badge-row">
+    <span class="badge green">Flask</span>
+    <span class="badge purple">Vanilla JS</span>
+    <span class="badge cyan">CSS Variables</span>
+    <span class="badge orange">REST API</span>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  EPISODE 1                                                     -->
+<!-- ============================================================ -->
+<div class="episode open" id="ep1">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">01</div>
+    <div class="ep-info">
+      <h2>Stateless REST API</h2>
+      <div class="ep-tagline">Why we avoid sessions and keep the server purely functional</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>The Stateless Design Pattern</h3>
+      <p>When building a web game against an AI, it's tempting to store the game state in server memory or a database. However, this introduces complexity: session management, timeouts, and state synchronization issues.</p>
+      
+      <p>Instead, our Flask backend is entirely <strong>stateless</strong>. The entire game state is serialized into a JSON object and sent to the client. The client holds the truth of the state, and simply sends it back to the server when it needs an AI move.</p>
+
+      <div class="diagram"><span class="hl">Stateless Request Flow</span>
+
+  <span class="hl2">Client</span>                                  <span class="hl3">Server</span>
+    │                                       │
+    │  POST /api/move                       │
+    │  { "state": {...}, "move": 36 } ────> │
+    │                                       │  1. Deserialize state
+    │                                       │  2. Apply move 36
+    │                                       │  3. Run MCTS to get AI move
+    │                                       │  4. Apply AI move
+    │  JSON response                        │  5. Serialize new state
+    │ <──── { "cells": [...], ... }         │
+    │                                       │
+    v                                       v</div>
+
+      <div class="callout insight">
+        <div class="callout-label">Benefits of Statelessness</div>
+        <ul>
+          <li><strong>Simplicity:</strong> No databases or Redis needed.</li>
+          <li><strong>Resilience:</strong> The server can be restarted without breaking active games.</li>
+          <li><strong>Scalability:</strong> Any server can handle any request.</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 2                                                     -->
+<!-- ============================================================ -->
+<div class="episode" id="ep2">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">02</div>
+    <div class="ep-info">
+      <h2>MCTS Integration</h2>
+      <div class="ep-tagline">Bridging the gap between a long-running search and a fast web request</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>Synchronous vs Asynchronous Search</h3>
+      <p>Our MCTS (Monte Carlo Tree Search) takes a few seconds to run, depending on the difficulty (simulation count). We use a simple synchronous request model.</p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">app.py</span><span class="lang-badge">Python</span></div>
+        <pre class="code-block"><span class="kw">def</span> <span class="fn">do_ai_move</span>(state):
+    <span class="st">"""Run MCTS and apply AI's move."""</span>
+    root = search_mod.run_mcts(
+        state, network,
+        num_simulations=current_sims,
+        dirichlet_epsilon=<span class="nu">0.0</span>,  <span class="cm"># No noise for gameplay</span>
+        device=<span class="st">'cpu'</span>,
+    )
+    ai_move = search_mod.select_move(root, temperature=<span class="nu">0.0</span>)  <span class="cm"># Greedy</span>
+    <span class="cm">...</span></pre>
+      </div>
+
+      <h3>Extracting Analysis Data</h3>
+      <p>MCTS doesn't just output a move; it builds a rich tree of possibilities. We extract the root node's statistics to power the UI's Analysis panel.</p>
+
+      <ul>
+        <li><strong>Win Evaluation:</strong> Read directly from the network's value head.</li>
+        <li><strong>Top Moves:</strong> Sorted by MCTS visit counts to show what the AI considered.</li>
+      </ul>
+
+      <div class="callout warning">
+        <div class="callout-label">CPU vs GPU</div>
+        During training, we use massive batch sizes on the GPU. For the web server, batch size is 1. We force the network to run on <code>cpu</code> because the overhead of moving a single state to GPU memory and back is actually slower than just running it on CPU.
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 3                                                     -->
+<!-- ============================================================ -->
+<div class="episode" id="ep3">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">03</div>
+    <div class="ep-info">
+      <h2>Glassmorphism UI</h2>
+      <div class="ep-tagline">Designing a premium, modern aesthetic without heavy frameworks</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>What is Glassmorphism?</h3>
+      <p>Glassmorphism is a UI trend characterized by translucent, frosted-glass effects. It creates depth and visual hierarchy.</p>
+
+      <p>Key ingredients:</p>
+      <ol>
+        <li>Semi-transparent backgrounds (using <code>rgba</code>)</li>
+        <li>Subtle borders</li>
+        <li>Background blur (using <code>backdrop-filter</code>)</li>
+      </ol>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">style.css</span><span class="lang-badge">CSS</span></div>
+        <pre class="code-block"><span class="ty">.analysis-panel</span> {
+    background: <span class="fn">rgba</span>(<span class="nu">30, 34, 45, 0.4</span>);
+    backdrop-filter: <span class="fn">blur</span>(<span class="nu">12px</span>);
+    border: <span class="nu">1px</span> solid <span class="fn">rgba</span>(<span class="nu">255, 255, 255, 0.05</span>);
+    border-radius: <span class="nu">16px</span>;
+    box-shadow: <span class="nu">0 8px 32px</span> <span class="fn">rgba</span>(<span class="nu">0, 0, 0, 0.3</span>);
+}</pre>
+      </div>
+
+      <h3>Dynamic Neon Accents</h3>
+      <p>We use bright, neon colors to indicate game state, specifically for the active sub-board ring. This provides critical gameplay information while looking great.</p>
+
+      <div class="diagram"><span class="hl">Active Board Highlighting</span>
+
+  <span class="hl4">.sub-board.active</span>
+  - Used when the player has "free choice" (all open boards)
+  - Subtle glow: <span class="dim">box-shadow: 0 0 12px rgba(cyan, 0.25)</span>
+
+  <span class="hl2">.sub-board.active-single</span>
+  - Used when forced into a specific sub-board
+  - Strong pulsing ring: <span class="dim">animation: board-pulse-strong 1.8s</span></div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!--  EPISODE 4                                                     -->
+<!-- ============================================================ -->
+<div class="episode" id="ep4">
+  <div class="episode-header" onclick="toggleEpisode(this)">
+    <div class="ep-badge">04</div>
+    <div class="ep-info">
+      <h2>Optimistic Updates</h2>
+      <div class="ep-tagline">Keeping the UI responsive despite slow network requests</div>
+    </div>
+    <div class="ep-chevron">&#9654;</div>
+  </div>
+  <div class="episode-body">
+    <div class="episode-content">
+
+      <h3>The Problem</h3>
+      <p>When a user clicks a cell, the server takes up to 10 seconds to respond with the AI's move. If the UI waits for the server response before updating, the game feels broken and laggy.</p>
+
+      <h3>The Solution: Optimistic UI</h3>
+      <p>We immediately update the local game state and render the player's move on the board <em>before</em> sending the request to the server.</p>
+
+      <div class="code-block-wrapper">
+        <div class="code-block-header"><span class="filename">main.js</span><span class="lang-badge">JavaScript</span></div>
+        <pre class="code-block"><span class="kw">function</span> <span class="fn">onCellClick</span>(sb, cell) {
+    <span class="cm">// ... validation ...</span>
+
+    <span class="cm">// 1. Deep copy the current state to send to server</span>
+    <span class="kw">const</span> stateToSend = JSON.parse(JSON.stringify(gameState));
+
+    <span class="cm">// 2. Optimistically render human move on UI immediately</span>
+    gameState.cells[sb][cell] = humanPlayer;
+    gameState.legal_moves = []; <span class="cm">// prevent double clicks</span>
+    <span class="fn">renderBoard</span>();
+
+    <span class="cm">// 3. Send unmodified state to server</span>
+    <span class="fn">sendMove</span>(move, stateToSend);
+}</pre>
+      </div>
+
+      <div class="callout key">
+        <div class="callout-label">Preventing State Corruption</div>
+        Notice that we deep copy the state <em>before</em> mutating it. If we sent the mutated state, the server would think the cell was already occupied when evaluating the requested move, resulting in an "Illegal Move" error!
+      </div>
+
+    </div>
+  </div>
+</div>
+
+</div><!-- /main -->
+
+<!-- ========== JAVASCRIPT ========== -->
+<script>
+// -- Episode toggle --
+function toggleEpisode(header) {
+  const ep = header.closest('.episode');
+  ep.classList.toggle('open');
+}
+
+// -- Sidebar navigation --
+document.querySelectorAll('.nav-link').forEach(link => {
+  link.addEventListener('click', e => {
+    e.preventDefault();
+    const targetId = link.dataset.target;
+    const target = document.getElementById(targetId);
+    if (!target) return;
+
+    // Open the episode if it's closed
+    if (target.classList.contains('episode') && !target.classList.contains('open')) {
+      target.classList.add('open');
+    }
+
+    // Smooth scroll
+    const y = target.getBoundingClientRect().top + window.scrollY - 70;
+    window.scrollTo({ top: y, behavior: 'smooth' });
+
+    // Close mobile sidebar
+    document.getElementById('sidebar').classList.remove('open');
+  });
+});
+
+// -- Active nav tracking --
+function updateActiveNav() {
+  const sections = document.querySelectorAll('.episode, .hero');
+  const links = document.querySelectorAll('.nav-link');
+  let currentId = 'hero';
+
+  sections.forEach(section => {
+    const rect = section.getBoundingClientRect();
+    if (rect.top < 200) {
+      currentId = section.id;
+    }
+  });
+
+  links.forEach(link => {
+    link.classList.toggle('active', link.dataset.target === currentId);
+  });
+}
+
+// -- Reading progress --
+function updateProgress() {
+  const scrollTop = window.scrollY;
+  const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+  const pct = docHeight > 0 ? (scrollTop / docHeight) * 100 : 0;
+  document.getElementById('progressFill').style.width = pct + '%';
+}
+
+window.addEventListener('scroll', () => {
+  updateActiveNav();
+  updateProgress();
+}, { passive: true });
+
+// -- Mobile burger --
+document.getElementById('burgerBtn').addEventListener('click', () => {
+  document.getElementById('sidebar').classList.toggle('open');
+});
+
+// -- Initialize --
+updateActiveNav();
+updateProgress();
+</script>
+
+</body>
+</html>
