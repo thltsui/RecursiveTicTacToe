@@ -7,6 +7,9 @@ Or directly:
     cd <project_root> && uv run python web_app/app.py
 """
 
+import eventlet
+eventlet.monkey_patch()
+
 import sys
 import os
 import glob
@@ -487,6 +490,6 @@ if __name__ == '__main__':
     if network is None:
         print("Failed to load network. Exiting.")
         sys.exit(1)
-    print("\n✅ Server ready at http://localhost:5001")
+    print("\n✅ Server ready at http://[::]:5001")
     print("   Open in your browser to play!\n")
-    socketio.run(app, host='0.0.0.0', port=5001, debug=False)
+    socketio.run(app, host='::', port=5001, debug=False)
