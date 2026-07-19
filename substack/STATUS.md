@@ -37,6 +37,25 @@ All 6 drafts now show "From Zero to AlphaZero:" in both the article title and se
 
 All practitioner and theory posts are now drafted. Source essay saved at `substack/essay_p3_alphazero.md`.
 
+## Google Search Console Setup (SEO fix)
+
+**Problem:** tthl.substack.com not appearing in Google search.
+**Root cause:** Substack doesn't auto-submit to Google for smaller publications.
+
+**Fix (one-time, ~15 min):**
+1. Go to https://search.google.com/search-console → Add property
+2. Choose **URL prefix** (NOT Domain — you don't have DNS access to substack.com)
+3. Enter `https://tthl.substack.com`
+4. Choose **HTML tag** verification → copy the `<meta>` tag
+5. In Substack: Settings → Advanced → Custom meta tags → paste it → Save
+6. Back in Search Console → click Verify
+7. Sitemaps → submit `https://tthl.substack.com/feed`
+8. URL Inspection → paste each published post URL → Request Indexing
+
+Do step 8 for all 4 published posts, then again after publishing PUCT.
+
+---
+
 ## Latest action (T3 title fix)
 
 T3 published title was "T3: The Slot Machine Problem — Where UCB Comes From" — now fixed to:
