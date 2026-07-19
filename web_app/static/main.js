@@ -284,8 +284,8 @@ function startMultiplayerGame(roomToJoin = null) {
     difficultySelector.style.display = 'none'; // Hide difficulty in multiplayer
     setStatus('Connecting to game server...', '');
 
-    // Connect to WebSockets
-    socket = io();
+    // Connect to WebSockets exclusively to avoid Fly.io load balancer issues across 2 machines
+    socket = io({ transports: ['websocket'] });
 
     setupSocketListeners();
 
