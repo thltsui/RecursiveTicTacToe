@@ -24,5 +24,5 @@ COPY checkpoints/large_v3_pure_self_play/best_model.pt ./checkpoints/large_v3_pu
 
 EXPOSE 5001
 
-# Run the Flask-SocketIO app using gunicorn and eventlet for production
-CMD ["uv", "run", "gunicorn", "-k", "eventlet", "-w", "1", "-b", "0.0.0.0:5001", "web_app.app:app"]
+# Run the Flask-SocketIO app using its built-in eventlet WSGI server
+CMD ["uv", "run", "python", "web_app/app.py"]
