@@ -52,7 +52,14 @@ The repository's evolution and various workstreams are separated into distinct b
   Contains all web application code, Flask-SocketIO multiplayer integration, and Docker/Fly.toml deployment configuration. This branch hosts the production code that players interact with.
 
 - `Substack`
-  Dedicated solely to educational content. This branch stores the Substack articles under the `substack/` directory (note: historically referred to as `tthl`). These articles explain the project's progression, math, and AI concepts for a broader audience.
+  Dedicated solely to educational content. All active Substack drafts are currently hosted and managed at [https://tthl.substack.com/publish/posts/drafts](https://tthl.substack.com/publish/posts/drafts). 
+  Inside this branch, under the `substack/` directory, you will find the raw markdown source files for these drafts, which include:
+  - `essay1_what_is_uttt.md`: Introduction to the game rules.
+  - `essay1b_rl_background.md` (and parts 1-3): Foundational Reinforcement Learning concepts (Credit Assignment, TD/DQN, Policy Gradients).
+  - `essay1c_bandits_mcts_intro.md` & `essay1c_bandits_trimmed.md`: Multi-Armed Bandits and MCTS introduction.
+  - `essay_p1_game_engine.md`: Details on the project's game engine implementation.
+  - `essay2_architecture.md` & `essay2_mcts.md`: Deep dive into the Neural Network architecture and Monte Carlo Tree Search.
+  - `essay_t5_mcts_phases.md` & `essay_t6_training_loop.md`: The phases of MCTS and the AlphaZero training loop.
 
 - `refactor/alphazero-ai-episodes`
   An experimental/refactoring branch aimed at restructuring the AI training pipeline into episodic scopes intended for a YouTube educational lecture series.
