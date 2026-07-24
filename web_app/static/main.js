@@ -1,6 +1,6 @@
 /**
  * Ultimate Tic-Tac-Toe — Web Dashboard Client
- * Communicates with the Flask backend to play against the AlphaZero AI.
+ * Communicates with the Flask backend to play against the AlphaZero AI or another human online.
  * Visualizes the AI's thinking in real-time.
  */
 
@@ -13,6 +13,12 @@ let isThinking = false;
 let gameActive = false;
 let currentAnalysis = null;
 let vizMode = 'none'; // 'none', 'visits', 'policy', 'qvalue', 'opponent'
+
+// Multiplayer / Online state
+let gameMode = 'ai'; // 'ai' or 'online'
+let socket = null;
+let roomId = null;
+let playerRole = 1; // 1 = X (first player), -1 = O (second player), 0 = spectator
 
 // ── Keypad Mapping ───────────────────────────────────────────────────────
 // Array index (row-major, 0=top-left) → numpad label (7=top-left, 1=bottom-left)
@@ -45,13 +51,58 @@ const resultIcon = document.getElementById('result-icon');
 const resultTitle = document.getElementById('result-title');
 const resultSubtitle = document.getElementById('result-subtitle');
 
+// Multiplayer DOM References
+const btnMultiplayer = document.getElementById('btn-multiplayer');
+const shareBar = document.getElementById('share-bar');
+const shareUrl = document.getElementById('share-url');
+const btnCopyUrl = document.getElementById('btn-copy-url');
+const roomDisplay = document.getElementById('room-display');
+
+const waitingOverlay = document.getElementById('waiting-overlay');
+const waitingShareUrl = document.getElementById('waiting-share-url');
+const btnWaitingCopyUrl = document.getElementById('btn-waiting-copy-url');
+const btnCancelWaiting = document.getElementById('btn-cancel-waiting');
+const difficultySelector = document.getElementById('difficulty-selector');
+
 // ── Initialization ───────────────────────────────────────────────────────
 
-document.getElementById('btn-new-game').addEventListener('click', startNewGame);
-document.getElementById('btn-play-again').addEventListener('click', () => {
-    hideResult();
+document.getElementById('btn-new-game').addEventListener('click', () => {
+    resetToAIMode();
     startNewGame();
 });
+
+document.getElementById('btn-play-again').addEventListener('click', () => {
+    hideResult();
+    if (gameMode === 'online') {
+        startMultiplayerGame(null); // start a new room
+    } else {
+        startNewGame();
+    }
+});
+
+btnMultiplayer.addEventListener('click', () => {
+    startMultiplayerGame(null);
+});
+
+// Copy link listeners
+const copyLinkFn = (inputEl) => {
+    inputEl.select();
+    inputEl.setSelectionRange(0, 99999); // For mobile devices
+    navigator.clipboard.writeText(inputEl.value).then(() => {
+        const activeBtn = document.activeElement;
+        const originalText = activeBtn.textContent;
+        activeBtn.textContent = 'Copied!';
+        setTimeout(() => {
+            activeBtn.textContent = originalText;
+        }, 2000);
+    }).catch(err => {
+        console.error('Failed to copy text: ', err);
+    });
+};
+
+btnCopyUrl.addEventListener('click', () => copyLinkFn(shareUrl));
+btnWaitingCopyUrl.addEventListener('click', () => copyLinkFn(waitingShareUrl));
+btnCancelWaiting.addEventListener('click', cancelWaiting);
 
 // Difficulty buttons
 document.querySelectorAll('.diff-btn').forEach(btn => {
@@ -74,6 +125,15 @@ document.querySelectorAll('.viz-btn').forEach(btn => {
 
 buildBoardDOM();
 buildOwnershipGrid();
+
+// Check if joining from a room link
+window.addEventListener('DOMContentLoaded', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const roomParam = urlParams.get('room');
+    if (roomParam) {
+        startMultiplayerGame(roomParam);
+    }
+});
 
 // ── Board Construction ───────────────────────────────────────────────────
 
@@ -122,7 +182,7 @@ function buildOwnershipGrid() {
     }
 }
 
-// ── API Communication ────────────────────────────────────────────────────
+// ── AI Game (REST API) ───────────────────────────────────────────────────
 
 async function startNewGame() {
     setStatus('Starting new game...', '');
@@ -156,7 +216,7 @@ async function sendMove(move, stateToSend) {
         const res = await fetch('/api/move', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ state: stateToSend, move }),
+            body: JSON.stringify({ state: stateToSend, move, difficulty }),
         });
 
         if (!res.ok) {
@@ -169,6 +229,9 @@ async function sendMove(move, stateToSend) {
 
         const data = await res.json();
         gameState = data;
+
+        // The AI is done thinking, we have the new state!
+        isThinking = false;
 
         // Store analysis
         if (data.analysis) {
@@ -201,9 +264,154 @@ async function sendMove(move, stateToSend) {
     } catch (err) {
         console.error('Network error:', err);
         setStatus('Connection error — try again', '');
+        isThinking = false; // ensure we reset if there's a network error
+    }
+}
+
+// ── Multiplayer (Socket.IO) ───────────────────────────────────────────────
+
+function startMultiplayerGame(roomToJoin = null) {
+    // Clean up current game
+    hideResult();
+    resetAnalysisPanel();
+    if (socket) {
+        socket.disconnect();
     }
 
+    gameMode = 'online';
+    gameActive = false;
     isThinking = false;
+    currentAnalysis = null;
+
+    difficultySelector.style.display = 'none'; // Hide difficulty in multiplayer
+    setStatus('Connecting to game server...', '');
+
+    // Connect to WebSockets exclusively to avoid Fly.io load balancer issues across 2 machines
+    socket = io({ transports: ['websocket'] });
+
+    setupSocketListeners();
+
+    socket.emit('join', { room_id: roomToJoin });
+}
+
+function setupSocketListeners() {
+    socket.on('room_joined', (data) => {
+        roomId = data.room_id;
+        playerRole = data.role;
+        gameState = data.state;
+
+        // Update URL
+        const newUrl = window.location.origin + window.location.pathname + '?room=' + roomId;
+        window.history.replaceState({ path: newUrl }, '', newUrl);
+
+        // Update share link UIs
+        shareUrl.value = newUrl;
+        waitingShareUrl.value = newUrl;
+        roomDisplay.textContent = roomId;
+        shareBar.style.display = 'flex';
+
+        renderBoard();
+
+        // Check if waiting for second player
+        if (playerRole === 1 && !data.player_o_present) {
+            waitingOverlay.style.display = 'flex';
+            setStatus('Waiting for opponent to join...', '');
+        } else {
+            waitingOverlay.style.display = 'none';
+            updateOnlineStatus();
+        }
+    });
+
+    socket.on('player_joined', (data) => {
+        // Another player joined
+        if (playerRole === 1 && data.role === -1) {
+            waitingOverlay.style.display = 'none';
+        }
+    });
+
+    socket.on('game_ready', (data) => {
+        waitingOverlay.style.display = 'none';
+        gameState = data.state;
+        gameActive = true;
+        renderBoard();
+        updateOnlineStatus();
+    });
+
+    socket.on('state_update', (data) => {
+        gameState = data.state;
+        renderBoard();
+
+        // Highlight last move
+        if (data.last_move !== undefined) {
+            const sb = Math.floor(data.last_move / 9);
+            const cell = data.last_move % 9;
+            const cellEl = document.getElementById(`cell-${sb}-${cell}`);
+            if (cellEl) cellEl.classList.add('ai-last-move'); // Use same class for highlight
+        }
+
+        if (gameState.is_terminal) {
+            gameActive = false;
+            setTimeout(() => showResult(gameState.winner), 600);
+            setStatus('Game over', 'game-over');
+        } else {
+            updateOnlineStatus();
+        }
+    });
+
+    socket.on('player_left', (data) => {
+        gameActive = false;
+        if (data.role === 1) {
+            setStatus('Player X disconnected. Waiting...', '');
+        } else {
+            setStatus('Player O disconnected. Waiting...', '');
+        }
+    });
+
+    socket.on('error', (data) => {
+        alert(data.message);
+    });
+}
+
+function updateOnlineStatus() {
+    if (!gameState) return;
+
+    if (playerRole === 0) {
+        const nextPlayer = gameState.current_player === 1 ? 'X' : 'O';
+        setStatus(`Spectating — Turn: Player ${nextPlayer}`, '');
+        return;
+    }
+
+    const isMyTurn = gameState.current_player === playerRole;
+    const boardHint = gameState.active_sub_board === -1
+        ? 'any board'
+        : `board ${keypadBoard(gameState.active_sub_board)}`;
+
+    if (isMyTurn) {
+        setStatus(`Your turn (${playerRole === 1 ? 'X' : 'O'}) — play in ${boardHint}`, 'your-turn');
+    } else {
+        setStatus(`Opponent's turn (${playerRole === 1 ? 'O' : 'X'}) — thinking...`, 'ai-turn');
+    }
+}
+
+function cancelWaiting() {
+    waitingOverlay.style.display = 'none';
+    resetToAIMode();
+    startNewGame();
+}
+
+function resetToAIMode() {
+    if (socket) {
+        socket.disconnect();
+        socket = null;
+    }
+    gameMode = 'ai';
+    roomId = null;
+    shareBar.style.display = 'none';
+    difficultySelector.style.display = 'flex';
+    
+    // Clear room param from URL
+    const cleanUrl = window.location.origin + window.location.pathname;
+    window.history.replaceState({ path: cleanUrl }, '', cleanUrl);
 }
 
 // ── Event Handlers ───────────────────────────────────────────────────────
@@ -215,14 +423,26 @@ function onCellClick(sb, cell) {
     const move = sb * 9 + cell;
     if (!gameState.legal_moves.includes(move)) return;
 
-    const stateToSend = JSON.parse(JSON.stringify(gameState));
+    if (gameMode === 'ai') {
+        const stateToSend = JSON.parse(JSON.stringify(gameState));
 
-    // Optimistically render human move on UI
-    gameState.cells[sb][cell] = humanPlayer;
-    gameState.legal_moves = [];
-    renderBoard();
+        // Optimistically render human move on UI
+        gameState.cells[sb][cell] = humanPlayer;
+        gameState.legal_moves = [];
+        renderBoard();
 
-    sendMove(move, stateToSend);
+        sendMove(move, stateToSend);
+    } else if (gameMode === 'online') {
+        // Verify it is our turn
+        if (gameState.current_player !== playerRole) return;
+
+        // Optimistically render my move locally to make it feel fast
+        gameState.cells[sb][cell] = playerRole;
+        gameState.legal_moves = [];
+        renderBoard();
+
+        socket.emit('make_move', { room_id: roomId, move: move });
+    }
 }
 
 // ── Rendering ────────────────────────────────────────────────────────────
@@ -232,6 +452,9 @@ function renderBoard() {
 
     const legalSet = new Set(gameState.legal_moves || []);
     const activeSb = gameState.active_sub_board;
+
+    // Check if it is currently the client's turn to play
+    const isMyTurn = (gameMode === 'ai' && !isThinking) || (gameMode === 'online' && gameState.current_player === playerRole);
 
     for (let sb = 0; sb < 9; sb++) {
         const subBoardEl = document.getElementById(`sb-${sb}`);
@@ -251,7 +474,7 @@ function renderBoard() {
         } else if (sbResult === 2) {
             subBoardEl.classList.add('drawn');
             addSubBoardOverlay(subBoardEl, '—', 'draw');
-        } else if (!gameState.is_terminal && gameActive && !isThinking) {
+        } else if (!gameState.is_terminal && gameActive && isMyTurn) {
             if (activeSb === -1) {
                 subBoardEl.classList.add('active');
             } else if (activeSb === sb) {
@@ -280,7 +503,7 @@ function renderBoard() {
             } else if (val === -1) {
                 cellEl.classList.add('p2');
                 cellEl.insertBefore(document.createTextNode('○'), cellEl.firstChild);
-            } else if (legalSet.has(move) && gameActive && !isThinking) {
+            } else if (legalSet.has(move) && gameActive && isMyTurn) {
                 cellEl.classList.add('playable');
             }
         }
@@ -450,7 +673,7 @@ function updateAnalysisPanel(analysis) {
     const margin = analysis.score_margin;
     const marginEl = scoreMarginValue;
     marginEl.textContent = (margin >= 0 ? '+' : '') + margin.toFixed(3);
-    marginEl.style.color = margin > 0.05 ? 'var(--magenta)' : margin < -0.05 ? 'var(--cyan)' : 'var(--text-secondary)';
+    marginEl.style.color = margin > 0.05 ? 'var(--cyan)' : margin < -0.05 ? 'var(--magenta)' : 'var(--text-secondary)';
 
     // Sims
     simsValue.textContent = analysis.total_sims.toLocaleString();
@@ -514,23 +737,27 @@ function updateOwnership(ownership) {
         }
 
         // Map ownership value to color
-        const pctText = Math.round(o * 100);
-        if (val) {
-            val.textContent = pctText + '%';
-            val.style.color = 'var(--text-primary)';
-        }
-
-        if (o > 0.6) {
-            // AI-leaning (magenta)
-            const intensity = (o - 0.5) * 2;
-            cell.style.background = `rgba(239, 71, 111, ${intensity * 0.3})`;
-        } else if (o < 0.4) {
-            // Human-leaning (cyan)
-            const intensity = (0.5 - o) * 2;
-            cell.style.background = `rgba(6, 214, 160, ${intensity * 0.3})`;
+        if (o > 0.55) {
+            const pctText = Math.round(o * 100);
+            cell.style.background = `rgba(6, 214, 160, ${(o - 0.5) * 0.8})`;
+            if (val) {
+                val.textContent = pctText + '%';
+                val.style.color = 'var(--cyan)';
+            }
+        } else if (o < 0.45) {
+            const pctText = Math.round((1 - o) * 100); // Display the AI's probability!
+            cell.style.background = `rgba(239, 71, 111, ${(0.5 - o) * 0.8})`;
+            if (val) {
+                val.textContent = pctText + '%';
+                val.style.color = 'var(--magenta)';
+            }
         } else {
-            // Contested (gold)
-            cell.style.background = `rgba(255, 209, 102, 0.1)`;
+            const pctText = Math.round(o * 100);
+            cell.style.background = 'rgba(255, 255, 255, 0.05)';
+            if (val) {
+                val.textContent = pctText + '%';
+                val.style.color = 'var(--text-primary)';
+            }
         }
     }
 }
@@ -610,21 +837,40 @@ function setStatus(text, indicatorClass) {
 // ── Game Result ──────────────────────────────────────────────────────────
 
 function showResult(winner) {
-    if (winner === humanPlayer) {
-        resultIcon.textContent = '🎉';
-        resultTitle.textContent = 'You Win!';
-        resultTitle.style.color = 'var(--cyan)';
-        resultSubtitle.textContent = 'Incredible — you beat the AlphaZero agent!';
-    } else if (winner === -humanPlayer) {
-        resultIcon.textContent = '🤖';
-        resultTitle.textContent = 'AI Wins';
-        resultTitle.style.color = 'var(--magenta)';
-        resultSubtitle.textContent = 'The machine prevails. Try again!';
+    if (gameMode === 'online') {
+        if (winner === playerRole) {
+            resultIcon.textContent = '🎉';
+            resultTitle.textContent = 'You Win!';
+            resultTitle.style.color = 'var(--cyan)';
+            resultSubtitle.textContent = 'Incredible job! You defeated your opponent.';
+        } else if (winner === -playerRole) {
+            resultIcon.textContent = '💀';
+            resultTitle.textContent = 'Opponent Wins';
+            resultTitle.style.color = 'var(--magenta)';
+            resultSubtitle.textContent = 'The opponent took the board. Better luck next time!';
+        } else {
+            resultIcon.textContent = '🤝';
+            resultTitle.textContent = 'Draw';
+            resultTitle.style.color = 'var(--gold)';
+            resultSubtitle.textContent = 'A hard-fought tie!';
+        }
     } else {
-        resultIcon.textContent = '🤝';
-        resultTitle.textContent = 'Draw';
-        resultTitle.style.color = 'var(--gold)';
-        resultSubtitle.textContent = 'A well-fought game — neither side could break through.';
+        if (winner === humanPlayer) {
+            resultIcon.textContent = '🎉';
+            resultTitle.textContent = 'You Win!';
+            resultTitle.style.color = 'var(--cyan)';
+            resultSubtitle.textContent = 'Incredible — you beat the AlphaZero agent!';
+        } else if (winner === -humanPlayer) {
+            resultIcon.textContent = '🤖';
+            resultTitle.textContent = 'AI Wins';
+            resultTitle.style.color = 'var(--magenta)';
+            resultSubtitle.textContent = 'The machine prevails. Try again!';
+        } else {
+            resultIcon.textContent = '🤝';
+            resultTitle.textContent = 'Draw';
+            resultTitle.style.color = 'var(--gold)';
+            resultSubtitle.textContent = 'A well-fought game — neither side could break through.';
+        }
     }
     resultOverlay.classList.add('visible');
 }

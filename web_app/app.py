@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Web dashboard for playing Ultimate Tic-Tac-Toe against the AlphaZero AI.
+"""Web dashboard for playing Ultimate Tic-Tac-Toe against the AlphaZero AI or another Human.
 
 Run from the project root:
     uv run python -m web_app.app
@@ -7,10 +7,16 @@ Or directly:
     cd <project_root> && uv run python web_app/app.py
 """
 
+import eventlet
+eventlet.monkey_patch()
+
 import sys
 import os
 import glob
 import json
+import copy
+import uuid
+from cachetools import TTLCache
 
 # Ensure the project root is on sys.path so we can import game modules
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -20,7 +26,11 @@ import torch
 import torch.nn.functional as F
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
+from flask_socketio import SocketIO, emit, join_room, leave_room
 from importlib import import_module
+
+# Configure torch for thread safety and to prevent CPU thrashing
+torch.set_num_threads(1)
 
 board_mod = import_module('01_game.board')
 rules_mod = import_module('01_game.rules')
@@ -42,21 +52,51 @@ import numpy as np
 app = Flask(__name__, static_folder='static')
 CORS(app)
 
+import redis
+redis_url = os.environ.get('REDIS_URL')
+redis_client = redis.from_url(redis_url) if redis_url else None
+
+socketio = SocketIO(app, cors_allowed_origins="*", message_queue=redis_url)
+
 # ── Global state ────────────────────────────────────────────────────────────
 
 network = None
-game_state = None
-DIFFICULTY_SIMS = {'easy': 25, 'medium': 100, 'hard': 400}
-current_sims = 200
+# Number of MCTS simulations based on difficulty
+DIFFICULTY_SIMS = {'easy': 100, 'medium': 300, 'hard': 500}
 
+# Local mapping to quickly find a user's room upon disconnect
+sid_to_room = {}
+
+# TTL Cache for multiplayer games (fallback if no Redis)
+rooms_cache = TTLCache(maxsize=2048, ttl=7200)
+
+def get_room(room_id):
+    if redis_client:
+        data = redis_client.get(f"room:{room_id}")
+        if data:
+            room_data = json.loads(data)
+            room_data['state'] = dict_to_state(room_data['state'])
+            return room_data
+        return None
+    return rooms_cache.get(room_id)
+
+def save_room(room_id, room_data):
+    if redis_client:
+        # We need to serialize the GameState to dict before saving
+        data_to_save = room_data.copy()
+        data_to_save['state'] = state_to_dict(room_data['state'])
+        redis_client.setex(f"room:{room_id}", 7200, json.dumps(data_to_save))
+    else:
+        rooms_cache[room_id] = room_data
 
 def load_network(checkpoint_path=None):
     """Load the best available network."""
     if checkpoint_path and os.path.exists(checkpoint_path):
         cp_path = checkpoint_path
     else:
-        # Prefer v5 fixed MCTS (latest), then v3, then generic
+        # Prefer v4 deep value, then v5, then v3
         search_dirs = [
+            os.path.join(PROJECT_ROOT, 'checkpoints/large_v4_deep_value'),
             os.path.join(PROJECT_ROOT, 'checkpoints/large_v5_fixed_mcts'),
             os.path.join(PROJECT_ROOT, 'checkpoints/large_v3_pure_self_play'),
         ]
@@ -124,11 +164,14 @@ def dict_to_state(d):
     )
 
 
-def get_analysis(state):
+def get_analysis(state, sims):
     """Run network + MCTS and return full analysis payload for a position."""
+    # Create an explicit copy of the state for thread safety
+    safe_state = state.copy()
+
     # Raw network output
-    net_output = network.predict(state, device='cpu')
-    legal_mask = get_legal_move_mask(state)
+    net_output = network.predict(safe_state, device='cpu')
+    legal_mask = get_legal_move_mask(safe_state)
 
     # Policy probabilities (softmax + legal mask)
     policy_probs = apply_legal_mask(net_output.policy_logits, legal_mask)
@@ -147,8 +190,8 @@ def get_analysis(state):
 
     # Run MCTS
     root = search_mod.run_mcts(
-        state, network,
-        num_simulations=current_sims,
+        safe_state, network,
+        num_simulations=sims,
         dirichlet_epsilon=0.0,
         device='cpu',
     )
@@ -180,20 +223,33 @@ def get_analysis(state):
             'prior': round(policy_list[m], 4),
         })
 
+    # Calculate smoothed root expected value from MCTS Q-values
+    # root.W is evaluated from the root node's current player's perspective
+    if root.N:
+        smoothed_win_value = sum(root.W.values()) / total_visits
+        # For smoothed ownership, average the Q_O values weighted by visits
+        if hasattr(root, 'O') and root.O:
+            smoothed_ownership = np.sum(list(root.O.values()), axis=0) / total_visits
+        else:
+            smoothed_ownership = ownership
+    else:
+        smoothed_win_value = win_value
+        smoothed_ownership = ownership
+
     return {
         'policy_probs': policy_list,
         'opp_policy_probs': opp_list,
         'mcts_visits': mcts_visits,
         'mcts_q_values': mcts_q_values,
-        'win_value': float(win_value),
+        'win_value': float(smoothed_win_value),
         'score_margin': float(score_margin),
-        'ownership': ownership,
+        'ownership': smoothed_ownership.tolist() if isinstance(smoothed_ownership, np.ndarray) else smoothed_ownership,
         'top_moves': top_moves,
         'total_sims': int(total_visits),
     }, root
 
 
-# ── Routes ──────────────────────────────────────────────────────────────────
+# ── REST Routes ──────────────────────────────────────────────────────────────
 
 @app.route('/')
 def index():
@@ -203,22 +259,23 @@ def index():
 @app.route('/api/new_game', methods=['POST'])
 def new_game():
     """Start a new game. Optionally set difficulty."""
-    global current_sims
     data = request.get_json(silent=True) or {}
     difficulty = data.get('difficulty', 'medium')
-    current_sims = DIFFICULTY_SIMS.get(difficulty, 200)
+    sims = DIFFICULTY_SIMS.get(difficulty, 100)
 
     human_player = data.get('human_player', 1)  # 1 = human goes first
     state = create_initial_state()
 
     response = state_to_dict(state)
     response['difficulty'] = difficulty
-    response['num_sims'] = current_sims
+    response['num_sims'] = sims
 
     # If human is player -1, AI goes first
     if human_player == -1:
-        ai_result = do_ai_move(state)
+        ai_result = do_ai_move(state, sims)
         response = ai_result
+        response['difficulty'] = difficulty
+        response['num_sims'] = sims
 
     return jsonify(response)
 
@@ -229,6 +286,8 @@ def human_move():
     data = request.get_json()
     state = dict_to_state(data['state'])
     move = int(data['move'])
+    difficulty = data.get('difficulty', 'medium')
+    sims = DIFFICULTY_SIMS.get(difficulty, 100)
 
     # Validate move
     legal = get_legal_moves(state)
@@ -242,7 +301,8 @@ def human_move():
         return jsonify(state_to_dict(state))
 
     # AI responds
-    return jsonify(do_ai_move(state))
+    ai_result = do_ai_move(state, sims)
+    return jsonify(ai_result)
 
 
 @app.route('/api/analyze', methods=['POST'])
@@ -250,17 +310,19 @@ def analyze_position():
     """Analyze a position without making a move. Returns full analysis."""
     data = request.get_json()
     state = dict_to_state(data['state'])
+    difficulty = data.get('difficulty', 'medium')
+    sims = DIFFICULTY_SIMS.get(difficulty, 100)
 
     if state.is_terminal:
         return jsonify({'error': 'Cannot analyze terminal position'}), 400
 
-    analysis, _ = get_analysis(state)
+    analysis, _ = get_analysis(state, sims)
     result = state_to_dict(state)
     result['analysis'] = analysis
     return jsonify(result)
 
 
-def do_ai_move(state):
+def do_ai_move(state, sims):
     """AI decides its move, then analyzes the resulting position for the human.
 
     Flow:
@@ -271,7 +333,7 @@ def do_ai_move(state):
     4. Return: new state + AI's move + human-perspective analysis
     """
     # Step 1: AI decides its move (internal, not surfaced)
-    ai_analysis, root = get_analysis(state)
+    ai_analysis, root = get_analysis(state, sims)
     ai_move = search_mod.select_move(root, temperature=0.0)
 
     # Step 2: Apply AI's move
@@ -282,13 +344,158 @@ def do_ai_move(state):
 
     # Step 3: Analyze the resulting position from the HUMAN's perspective
     if not state.is_terminal:
-        human_analysis, _ = get_analysis(state)
+        human_analysis, _ = get_analysis(state, sims)
         result['analysis'] = human_analysis
     else:
         # Game is over — no analysis needed, but include final eval
         result['analysis'] = ai_analysis
 
     return result
+
+
+# ── Socket.IO Event Handlers ──────────────────────────────────────────────────
+
+@socketio.on('join')
+def on_join(data):
+    room_id = data.get('room_id')
+    sid = request.sid
+
+    if not room_id:
+        # Create a new unique room ID
+        room_id = str(uuid.uuid4())[:8]
+
+    # Initialize room if it doesn't exist
+    room = get_room(room_id)
+    if not room:
+        room = {
+            'state': create_initial_state(),
+            'player_x': None,
+            'player_o': None,
+            'spectators': [],
+            'move_history': []
+        }
+
+    join_room(room_id)
+
+    # Assign roles
+    if room['player_x'] == sid or room['player_o'] == sid:
+        # Rejoining
+        role = 1 if room['player_x'] == sid else -1
+    elif not room['player_x']:
+        room['player_x'] = sid
+        role = 1
+    elif not room['player_o']:
+        room['player_o'] = sid
+        role = -1
+    else:
+        room['spectators'].append(sid)
+        role = 0  # Spectator
+
+    save_room(room_id, room)
+    sid_to_room[sid] = room_id
+
+    # Emit role assignment to joining user
+    emit('room_joined', {
+        'room_id': room_id,
+        'role': role,
+        'state': state_to_dict(room['state']),
+        'player_x_present': room['player_x'] is not None,
+        'player_o_present': room['player_o'] is not None
+    })
+
+    # Notify others in the room
+    emit('player_joined', {
+        'role': role,
+        'player_x_present': room['player_x'] is not None,
+        'player_o_present': room['player_o'] is not None
+    }, to=room_id, include_self=False)
+
+    # If both players are joined, notify room that game is starting/ready
+    if room['player_x'] and room['player_o']:
+        emit('game_ready', {
+            'state': state_to_dict(room['state'])
+        }, to=room_id)
+
+
+@socketio.on('make_move')
+def on_make_move(data):
+    room_id = data.get('room_id')
+    move = data.get('move')
+    sid = request.sid
+
+    room = get_room(room_id)
+    if not room_id or not room:
+        emit('error', {'message': 'Room not found'})
+        return
+    state = room['state']
+
+    if state.is_terminal:
+        emit('error', {'message': 'Game has already ended'})
+        return
+
+    # Determine role of the sender
+    if sid == room['player_x']:
+        sender_role = 1
+    elif sid == room['player_o']:
+        sender_role = -1
+    else:
+        emit('error', {'message': 'Spectators cannot make moves'})
+        return
+
+    # Verify turn
+    if state.current_player != sender_role:
+        emit('error', {'message': "It is not your turn"})
+        return
+
+    # Verify move validity
+    legal = get_legal_moves(state)
+    if move not in legal:
+        emit('error', {'message': 'Illegal move'})
+        return
+
+    # Apply move
+    new_state = apply_move(state, move)
+    room['state'] = new_state
+    room['move_history'].append(move)
+    save_room(room_id, room)
+
+    # Broadcast state update to everyone in the room
+    emit('state_update', {
+        'state': state_to_dict(new_state),
+        'last_move': move
+    }, to=room_id)
+
+
+@socketio.on('disconnect')
+def on_disconnect():
+    sid = request.sid
+    room_id = sid_to_room.get(sid)
+    if not room_id:
+        return
+        
+    room = get_room(room_id)
+    if not room:
+        return
+        
+    updated = False
+    if room['player_x'] == sid:
+        room['player_x'] = None
+        updated = True
+        emit('player_left', {'role': 1}, to=room_id, include_self=False)
+    elif room['player_o'] == sid:
+        room['player_o'] = None
+        updated = True
+        emit('player_left', {'role': -1}, to=room_id, include_self=False)
+    elif sid in room['spectators']:
+        room['spectators'].remove(sid)
+        updated = True
+
+    if updated:
+        save_room(room_id, room)
+        
+    # Clean up local mapping
+    if sid in sid_to_room:
+        del sid_to_room[sid]
 
 
 # ── Main ────────────────────────────────────────────────────────────────────
@@ -298,6 +505,6 @@ if __name__ == '__main__':
     if network is None:
         print("Failed to load network. Exiting.")
         sys.exit(1)
-    print("\n✅ Server ready at http://localhost:5001")
+    print("\n✅ Server ready at http://[::]:5001")
     print("   Open in your browser to play!\n")
-    app.run(host='0.0.0.0', port=5001, debug=False)
+    socketio.run(app, host='::', port=5001, debug=False)

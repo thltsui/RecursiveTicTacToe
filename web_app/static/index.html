@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ultimate Tic-Tac-Toe — AlphaZero AI</title>
-    <meta name="description" content="Play Ultimate Tic-Tac-Toe against a self-trained AlphaZero AI — see how it thinks in real-time.">
+    <title>Ultimate Tic-Tac-Toe — AlphaZero AI & Online Multiplayer</title>
+    <meta name="description" content="Play Ultimate Tic-Tac-Toe against a self-trained AlphaZero AI or a friend online.">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -19,7 +19,7 @@
                     <span class="logo-icon">⊞</span>
                     <div>
                         <h1>Ultimate Tic-Tac-Toe</h1>
-                        <p class="subtitle">AlphaZero Agent — v5 · 200 iterations · 92% win rate</p>
+
                     </div>
                 </div>
                 <div class="controls">
@@ -29,6 +29,7 @@
                         <button class="diff-btn" data-diff="hard">Hard</button>
                     </div>
                     <button class="btn-new-game" id="btn-new-game">New Game</button>
+                    <button class="btn-multiplayer" id="btn-multiplayer">Play vs Human</button>
                 </div>
             </div>
         </header>
@@ -40,7 +41,14 @@
                 <!-- Status bar -->
                 <div class="status-bar" id="status-bar">
                     <div class="status-indicator" id="status-indicator"></div>
-                    <span id="status-text">Click "New Game" to start</span>
+                    <span id="status-text">Click "New Game" or "Play vs Human" to start</span>
+                </div>
+
+                <!-- Share Link Bar (for active multiplayer game) -->
+                <div class="share-bar" id="share-bar" style="display: none;">
+                    <span>Room: <strong id="room-display">...</strong></span>
+                    <input type="text" id="share-url" readonly>
+                    <button id="btn-copy-url">Copy Link</button>
                 </div>
 
                 <!-- Game board -->
@@ -145,6 +153,24 @@
         </div>
     </div>
 
+    <!-- Overlay for waiting for opponent -->
+    <div class="result-overlay" id="waiting-overlay" style="display: none;">
+        <div class="result-card">
+            <div class="spinner-container">
+                <div class="spinner"></div>
+            </div>
+            <h2>Waiting for Opponent</h2>
+            <p>Share this link to invite someone to play:</p>
+            <div class="share-input-group">
+                <input type="text" id="waiting-share-url" readonly>
+                <button id="btn-waiting-copy-url">Copy</button>
+            </div>
+            <p class="waiting-note">The game will start automatically when they join.</p>
+            <button class="btn-cancel-waiting" id="btn-cancel-waiting">Cancel</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
     <script src="/static/main.js"></script>
 </body>
 </html>

@@ -44,11 +44,14 @@ class TrainingConfig:
 
     All hyperparameters with justified defaults.
     """
-    # Self-play
-    games_per_iteration:   int   = 100
+    # Self-play mix
+    num_self_play:         int   = 10
+    num_vs_random:         int   = 5
+    num_vs_best:           int   = 5
     num_simulations:       int   = 800
     temperature_threshold: int   = 30
-    self_play_with_best:   bool  = True
+    dirichlet_alpha:       float = 0.3
+    dirichlet_epsilon:     float = 0.35
 
     # Training
     batch_size:            int   = 256
@@ -67,8 +70,10 @@ class TrainingConfig:
 
     # Evaluation
     arena_every_n:         int   = 10
-    arena_games:           int   = 100
+    arena_games:           int   = 50
     win_rate_threshold:    float = 0.55
+    max_iterations:        int   = 200
+    early_stopping_patience: int = 5
 
     # Buffer
     buffer_capacity:       int   = 500_000
@@ -153,7 +158,7 @@ def train(config: TrainingConfig) -> None:
 
     # Auto-resume from latest checkpoint
     import glob
-    checkpoints = sorted(glob.glob(os.path.join(config.checkpoint_dir, '*.pt')))
+    checkpoints = sorted(glob.glob(os.path.join(config.checkpoint_dir, 'checkpoint_iter*.pt')))
     iteration = 0
     if checkpoints:
         latest_cp = checkpoints[-1]
@@ -192,29 +197,44 @@ def train(config: TrainingConfig) -> None:
         else:
             print(f"  WARNING: pretrain_checkpoint not found: {config.pretrain_checkpoint}")
 
+    # Keep a running best_net model to play against
+    best_net = UltimateTTTNetwork(
+        channels=config.channels, num_blocks=config.num_blocks
+    ).to(config.device)
+    best_net.load_state_dict(best_network_state)
+    best_net.eval()
+
     print(f"Starting training with config:")
-    print(f"  MCTS device: {config.device} | Train device: {train_device}")
+    print(f"  Mcripts device: {config.device} | Train device: {train_device}")
     print(f"  Network: {config.channels}ch x {config.num_blocks}blocks")
     num_params = sum(p.numel() for p in network.parameters())
     print(f"  Parameters: {num_params:,}")
     print()
+
+    patience_counter = 0
+
     try:
         while True:
+            if iteration >= config.max_iterations:
+                print(f"Reached max iterations ({config.max_iterations}). Stopping training.")
+                break
+
             iteration += 1
             iter_start = time.time()
 
-            # 1. SELF-PLAY — 100% pure self-play
-            # We break the draw equilibrium via anti-draw value shaping and
-            # increased Dirichlet noise / temperature exploration.
+            # 1. SELF-PLAY
             network.eval()
-            num_self = config.games_per_iteration
-            print(f"[Iter {iteration}] Self-play: {num_self}x pure self-play")
+            print(f"[Iter {iteration}] Self-play: {config.num_self_play} SP, {config.num_vs_random} vs Rand, {config.num_vs_best} vs Best")
             records = generate_mixed_batch(
                 network=network,
-                num_self_play=num_self,
-                num_vs_random=0,
+                num_self_play=config.num_self_play,
+                num_vs_random=config.num_vs_random,
+                num_vs_best=config.num_vs_best,
+                best_network=best_net,
                 num_simulations=config.num_simulations,
                 temperature_threshold=config.temperature_threshold,
+                dirichlet_alpha=config.dirichlet_alpha,
+                dirichlet_epsilon=config.dirichlet_epsilon,
                 device=config.device,
             )
             for record in records:
@@ -269,25 +289,26 @@ def train(config: TrainingConfig) -> None:
                 'time_seconds': time.time() - iter_start,
             }
 
-            # 3. EVALUATE vs random opponent (every N iterations)
-            # We measure win rate against random — this is our true metric of improvement.
-            # No more arena vs best_model (which was losing to random!).
+            # 3. EVALUATE vs random opponent AND best model
             if iteration % config.arena_every_n == 0:
                 try:
                     import random as rng
                     board_mod = import_module('01_game.board')
                     rules_mod = import_module('01_game.rules')
                     search_mod = import_module('03_mcts.search')
+                    arena_mod = import_module('06_evaluation.arena')
 
                     network.eval()
-                    num_games = min(config.arena_games, 50)  # cap at 50 to keep it fast
+                    
+                    # 3a. Sanity check vs Random (fast)
+                    num_rand_games = min(config.arena_games // 2, 20)
                     wins, loses, draws = 0, 0, 0
-                    for g in range(num_games):
+                    for g in range(num_rand_games):
                         state = board_mod.create_initial_state()
                         while not state.is_terminal:
                             if state.current_player == 1:
                                 root = search_mod.run_mcts(
-                                    state, network, num_simulations=config.num_simulations,
+                                    state, network, num_simulations=100,  # fast sims
                                     dirichlet_epsilon=0.0, device=config.device)
                                 move = search_mod.select_move(root, temperature=0.0)
                             else:
@@ -301,28 +322,49 @@ def train(config: TrainingConfig) -> None:
                         else:
                             draws += 1
 
-                    win_rate = wins / (wins + loses + draws) if (wins + loses + draws) > 0 else 0.0
+                    rand_win_rate = wins / (wins + loses + draws) if (wins + loses + draws) > 0 else 0.0
+                    print(f"  Vs Random: {wins}W/{loses}L/{draws}D (win_rate={rand_win_rate:.3f})")
+
+                    # 3b. Real Arena vs Best Model
+                    print(f"  Arena vs Best Model ({config.arena_games} games)...")
+                    arena_result = arena_mod.run_arena(
+                        network_new=network,
+                        network_old=best_net,
+                        num_games=config.arena_games,
+                        num_simulations=config.num_simulations,
+                        device=config.device
+                    )
+                    
+                    win_rate = arena_result.win_rate
                     metrics['arena_win_rate'] = win_rate
-                    metrics['arena_wins'] = wins
-                    metrics['arena_losses'] = loses
-                    metrics['arena_draws'] = draws
+                    metrics['arena_wins'] = arena_result.wins
+                    metrics['arena_losses'] = arena_result.losses
+                    metrics['arena_draws'] = arena_result.draws
                     last_arena_win_rate = win_rate
-                    print(f"  Vs Random: {wins}W/{loses}L/{draws}D "
+                    print(f"  Vs Best Model: {arena_result.wins}W/{arena_result.losses}L/{arena_result.draws}D "
                           f"(win_rate={win_rate:.3f})")
 
-                    # 4. CHECKPOINT if new network beats best_model.pt at 55%+ vs random
-                    # Load the stored best_model.pt's win rate vs random as baseline
-                    if win_rate > 0.55 and win_rate > best_random_win_rate:
+                    # 4. CHECKPOINT if new network beats best_model.pt
+                    if win_rate > config.win_rate_threshold:
                         best_network_state = clone_state_dict(network.state_dict())
-                        best_random_win_rate = win_rate
+                        best_net.load_state_dict(best_network_state)
+                        patience_counter = 0  # reset patience
+                        
                         path = save_checkpoint(network, optimizer, iteration,
                                                win_rate, config.checkpoint_dir)
                         save_checkpoint(network, optimizer, iteration,
                                         win_rate, config.checkpoint_dir,
                                         filename_override='best_model.pt')
-                        print(f"  New best network (wr vs random={win_rate:.3f})! Saved to {path}")
+                        print(f"  New best network (wr={win_rate:.3f})! Patience reset. Saved to {path}")
+                    else:
+                        patience_counter += 1
+                        print(f"  Did not beat best network. Patience: {patience_counter}/{config.early_stopping_patience}")
+                        if patience_counter >= config.early_stopping_patience:
+                            print(f"Early stopping triggered after {patience_counter} evaluations without improvement.")
+                            break
+
                 except Exception as e:
-                    print(f"  Eval vs random skipped: {e}")
+                    print(f"  Eval skipped due to error: {e}")
                     import traceback; traceback.print_exc()
 
             # Periodic checkpoint save (regardless of arena)

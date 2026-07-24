@@ -29,12 +29,15 @@ def main():
         channels=192,
         num_blocks=10,
 
-        # Self-play — 100% pure self-play with anti-draw value shaping
-        device='cpu',
-        games_per_iteration=20,
+        # Self-play mix
+        device='cpu',  # CPU used for MCTS to avoid MPS overhead for batch=1
+        num_self_play=10,
+        num_vs_random=5,
+        num_vs_best=5,
         num_simulations=200,
         temperature_threshold=30,  # AlphaZero standard: temp=1 for first 30 moves
-        self_play_with_best=False,
+        dirichlet_alpha=0.3,       # Explicitly set for tuning
+        dirichlet_epsilon=0.35,    # Explicitly set for tuning
 
         # Training
         batch_size=256,
@@ -55,15 +58,17 @@ def main():
         arena_every_n=10,       # arena every 10 iterations to catch issues early
         arena_games=50,
         win_rate_threshold=0.55,
+        max_iterations=1000,
+        early_stopping_patience=15,
 
         # Buffer
         buffer_capacity=200_000,
 
         # Checkpointing — fresh start with pure self-play
-        checkpoint_dir='checkpoints/large_v3_pure_self_play/',
+        checkpoint_dir='checkpoints/large_v4_deep_value/',
         checkpoint_every_n=5,
-        pretrain_checkpoint='checkpoints/pretrain_value.pt',
-        train_device='mps',
+        pretrain_checkpoint=None,  # Start from scratch due to architecture change
+        train_device='mps',        # MPS explicitly used for batched training updates
         seed=42,
     )
 
@@ -78,7 +83,7 @@ def main():
     print("=" * 60)
     print(f"  Device:       {config.device} (MCTS) + MPS (training)")
     print(f"  Network:      {config.channels}ch x {config.num_blocks} blocks ({n_params:,} params)")
-    print(f"  Self-play:    {config.games_per_iteration} games x {config.num_simulations} sims/move")
+    print(f"  Self-play:    {config.num_self_play} SP + {config.num_vs_random} vs Rand + {config.num_vs_best} vs Best ({config.num_simulations} sims/move)")
     print(f"  Training:     {config.batches_per_iteration} batches x B={config.batch_size}")
     print(f"  Arena:        every {config.arena_every_n} iters, {config.arena_games} games")
     print(f"  Buffer:       {config.buffer_capacity:,} capacity")

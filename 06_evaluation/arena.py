@@ -63,6 +63,7 @@ def play_single_game(
 
     state = board_mod.create_initial_state()
 
+    move_count = 0
     while not state.is_terminal:
         # Select network based on current player
         net = player1_network if state.current_player == 1 else player2_network
@@ -75,9 +76,11 @@ def play_single_game(
             device=device,
         )
 
-        # Greedy move selection (temperature = 0)
-        move = search_mod.select_move(root, temperature=0.0)
+        # Temperature = 1.0 for first 4 moves to ensure game variety, then greedy
+        temp = 1.0 if move_count < 4 else 0.0
+        move = search_mod.select_move(root, temperature=temp)
         state = rules_mod.apply_move(state, move)
+        move_count += 1
 
     return state.winner if state.winner is not None else 0
 

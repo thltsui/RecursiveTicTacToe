@@ -89,9 +89,13 @@ def run_mcts(
 
     # Run simulations
     for _ in range(num_simulations):
-        node = _select(root, c_puct)
-        value = _expand_and_evaluate(node, network, device)
-        _backup(node, value)
+        # Phase 1: Select
+        leaf = _select(root, c_puct)
+        # Phase 2+3: Expand and Evaluate
+        value, ownership = _expand_and_evaluate(leaf, network, device)
+
+        # Phase 4: Backup
+        _backup(leaf, value, ownership)
 
     return root
 
@@ -166,18 +170,20 @@ def _expand_and_evaluate(
         device: Compute device.
 
     Returns:
-        Value from current player's perspective.
+        Tuple of (value, ownership) from current player's perspective.
     """
     if node.is_terminal:
         # Return actual game result from the perspective of the current player
         # at this terminal node. Since the game ended on the previous player's move,
         # the winner is from the previous player's perspective.
         if node.state.winner is None or node.state.winner == 0:
-            return 0.0
-        # winner is 1 or -1 in raw game terms
-        # current_player at this node is whose turn it would be (but game is over)
-        # The value should be from the current node's player perspective
-        return float(node.state.winner * node.state.current_player)
+            value = 0.0
+        else:
+            value = float(node.state.winner * node.state.current_player)
+
+        results = np.array(node.state.sub_board_results, dtype=np.float32)
+        ownership = (results * node.state.current_player + 1.0) / 2.0
+        return value, ownership
 
     from importlib import import_module
     rules_mod = import_module('01_game.rules')
@@ -194,18 +200,19 @@ def _expand_and_evaluate(
 
     node.expand(probs, legal_moves)
 
-    # Return value estimate from current player's perspective
-    return net_output.win_value.item()
+    # Return value estimate and ownership from current player's perspective
+    return net_output.win_value.item(), net_output.ownership.detach().cpu().numpy().flatten()
 
 
-def _backup(node: MCTSNode, value: float) -> None:
-    """Phase 4: Backpropagate value up the tree, negating at each level.
+def _backup(node: MCTSNode, value: float, ownership: np.ndarray) -> None:
+    """Phase 4: Backpropagate value and ownership up the tree.
 
     Args:
         node: Leaf node where evaluation was performed.
         value: Value from the leaf node's current player's perspective.
+        ownership: (9,) ownership array from the leaf node's perspective.
     """
-    node.backup(value)
+    node.backup(value, ownership)
 
 
 if __name__ == "__main__":

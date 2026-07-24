@@ -64,6 +64,8 @@ def play_self_play_game(
     network: 'UltimateTTTNetwork',
     num_simulations: int = 800,
     temperature_threshold: int = 30,
+    dirichlet_alpha: float = 0.3,
+    dirichlet_epsilon: float = 0.35,
     device: str = 'cpu',
 ) -> GameRecord:
     """Play one complete self-play game and return the game record.
@@ -104,6 +106,8 @@ def play_self_play_game(
     while not state.is_terminal:
         # Run MCTS
         root = run_mcts(state, network, num_simulations=num_simulations,
+                        dirichlet_alpha=dirichlet_alpha,
+                        dirichlet_epsilon=dirichlet_epsilon,
                         device=device)
 
         # Compute policy target from visit counts
@@ -246,6 +250,7 @@ def play_vs_random_game(
     network: 'UltimateTTTNetwork',
     num_simulations: int = 200,
     device: str = 'cpu',
+    network_player: int = 1,
 ) -> GameRecord:
     """Play one game: network (player1) vs random player.
 
@@ -253,14 +258,15 @@ def play_vs_random_game(
     This generates data where the network can LEARN to win,
     breaking the self-play Nash equilibrium of always drawing.
 
-    IMPORTANT: Only records the NETWORK's moves (player 1) as training data.
+    IMPORTANT: Only records the NETWORK's moves as training data.
     Recording random player moves would teach the policy head that uniform
     random play is correct, which is the opposite of what we want.
 
     Args:
-        network: Current network (plays as player1).
+        network: Current network.
         num_simulations: MCTS simulations per move.
         device: Compute device.
+        network_player: 1 to go first, -1 to go second.
 
     Returns:
         Complete GameRecord with value/score/ownership targets.
@@ -284,7 +290,7 @@ def play_vs_random_game(
     move_records: list[MoveRecord] = []
 
     while not state.is_terminal:
-        if state.current_player == 1:
+        if state.current_player == network_player:
             # Network's turn — use MCTS with greedy play to maximize wins
             root = run_mcts(state, network, num_simulations=num_simulations,
                             device=device)
@@ -329,6 +335,8 @@ def play_vs_random_game(
 
     for rec in move_records:
         cp = rec.current_player
+        # From the network's perspective, we still want +1 if it won
+        # wait, value_target is from current_player's perspective.
         rec.value_target = float(winner * cp) if winner != 0 else 0.0
         own_wins = np.sum(final_results == cp)
         opp_wins = np.sum(final_results == -cp)
@@ -351,6 +359,7 @@ def play_vs_best_game(
     best_network: 'UltimateTTTNetwork',
     num_simulations: int = 200,
     device: str = 'cpu',
+    network_player: int = 1,
 ) -> GameRecord:
     """Play one game: current network vs frozen best_model.
 
@@ -387,7 +396,7 @@ def play_vs_best_game(
 
     while not state.is_terminal:
         # Choose network based on current player
-        net = network if state.current_player == 1 else best_network
+        net = network if state.current_player == network_player else best_network
 
         # Run MCTS with some exploration (temperature 0.5) for diversity
         root = run_mcts(state, net, num_simulations=num_simulations,
@@ -447,24 +456,26 @@ def play_vs_best_game(
 
 def generate_mixed_batch(
     network: 'UltimateTTTNetwork',
-    num_self_play: int = 20,
-    num_vs_random: int = 0,
-    num_simulations: int = 200,
+    num_self_play: int,
+    num_vs_random: int,
+    num_vs_best: int,
+    best_network: 'UltimateTTTNetwork',
+    num_simulations: int = 800,
     temperature_threshold: int = 30,
+    dirichlet_alpha: float = 0.3,
+    dirichlet_epsilon: float = 0.35,
     device: str = 'cpu',
 ) -> list[GameRecord]:
     """Generate a mixed batch of self-play data.
 
-    90% vs random opponent (teaches the network to WIN — breaks the draw equilibrium).
-    10% pure self-play (teaches stability and consolidation).
-
-    Only network moves are recorded from vs-random games, so the policy head
-    never sees random uniform distributions as training targets.
+    Mix of pure self-play, vs random opponent, and vs best checkpoint.
 
     Args:
         network: Current network.
-        num_self_play: Number of pure self-play games (default: 2).
-        num_vs_random: Number of games vs random opponent (default: 18).
+        num_self_play: Number of pure self-play games.
+        num_vs_random: Number of games vs random opponent.
+        num_vs_best: Number of games vs best opponent.
+        best_network: The best network checkpoint (if available).
         num_simulations: MCTS simulations per move.
         device: Compute device.
 
@@ -475,15 +486,23 @@ def generate_mixed_batch(
 
     # 1. Pure self-play
     for i in range(num_self_play):
-        record = play_self_play_game(
-            network, num_simulations, temperature_threshold, device=device
-        )
-        records.append(record)
+        records.append(play_self_play_game(
+            network, num_simulations, temperature_threshold,
+            dirichlet_alpha, dirichlet_epsilon, device
+        ))
 
-    # 2. Network vs random player (90%) — only network moves recorded
+    # 2. Network vs random player — only network moves recorded
     for i in range(num_vs_random):
-        record = play_vs_random_game(network, num_simulations, device=device)
+        net_p = 1 if i % 2 == 0 else -1
+        record = play_vs_random_game(network, num_simulations, device=device, network_player=net_p)
         records.append(record)
+        
+    # 3. Network vs best checkpoint
+    if num_vs_best > 0 and best_network is not None:
+        for i in range(num_vs_best):
+            net_p = 1 if i % 2 == 0 else -1
+            record = play_vs_best_game(network, best_network, num_simulations, device=device, network_player=net_p)
+            records.append(record)
 
     # Shuffle records so the network sees mixed data in each batch
     import random

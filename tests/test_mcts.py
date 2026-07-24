@@ -59,7 +59,7 @@ class TestMCTSNode:
         child.backup(1.0)
 
         assert root.N[legal[0]] == 1
-        assert root.W[legal[0]] == 1.0
+        assert root.W[legal[0]] == -1.0
         assert root.visit_count == 1
 
 
