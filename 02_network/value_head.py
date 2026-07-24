@@ -40,13 +40,14 @@ class ValueHead(nn.Module):
 
     Architecture:
         input (B, C, 9, 9)
-            -> Conv2d(C, 1, kernel=1) -> BN -> ReLU      # (B, 1, 9, 9)
-            -> Flatten                                     # (B, 81)
-            -> Linear(81, 64) -> ReLU                      # (B, 64)
+            -> Conv2d(C, 32, kernel=1) -> BN -> ReLU     # (B, 32, 9, 9)
+            -> Flatten                                     # (B, 2592)
+            -> Linear(2592, 512) -> ReLU                   # (B, 512)
+            -> Linear(512, 128) -> ReLU                    # (B, 128)
             -> shared_features
-                 |-> Linear(64, 1) -> Tanh    -> win_value      (B, 1)
-                 |-> Linear(64, 1) -> Tanh    -> score_margin   (B, 1)
-                 |-> Linear(64, 9) -> Sigmoid -> ownership      (B, 9)
+                 |-> Linear(128, 1) -> Tanh    -> win_value      (B, 1)
+                 |-> Linear(128, 1) -> Tanh    -> score_margin   (B, 1)
+                 |-> Linear(128, 9) -> Sigmoid -> ownership      (B, 9)
 
     Args:
         in_channels: Number of channels from trunk (C).
@@ -58,15 +59,15 @@ class ValueHead(nn.Module):
     def __init__(self, in_channels: int):
         super().__init__()
 
-        # Shared trunk
-        self.conv = nn.Conv2d(in_channels, 1, kernel_size=1, bias=False)
-        self.bn = nn.BatchNorm2d(1)
-        self.fc = nn.Linear(81, 64)
+        self.conv = nn.Conv2d(in_channels, 32, kernel_size=1)
+        self.bn = nn.BatchNorm2d(32)
 
-        # Three output heads
-        self.win_head = nn.Linear(64, 1)
-        self.score_head = nn.Linear(64, 1)
-        self.ownership_head = nn.Linear(64, 9)
+        self.fc1 = nn.Linear(32 * 81, 512)
+        self.fc2 = nn.Linear(512, 128)
+
+        self.val_out = nn.Linear(128, 1)
+        self.score_out = nn.Linear(128, 1)
+        self.own_out = nn.Linear(128, 9)
 
     def forward(self, x: torch.Tensor) -> ValueHeadOutput:
         """Forward pass through value head.
@@ -77,15 +78,15 @@ class ValueHead(nn.Module):
         Returns:
             ValueHeadOutput with win_value, score_margin, ownership.
         """
-        v = self.conv(x)                    # (B, 1, 9, 9)
-        v = self.bn(v)                      # (B, 1, 9, 9)
-        v = F.relu(v)                       # (B, 1, 9, 9)
-        v = v.flatten(start_dim=1)          # (B, 81)
-        shared = F.relu(self.fc(v))         # (B, 64)
+        x = F.relu(self.bn(self.conv(x)))
+        x = x.view(x.size(0), -1)
 
-        win_value = torch.tanh(self.win_head(shared))           # (B, 1)
-        score_margin = torch.tanh(self.score_head(shared))      # (B, 1)
-        ownership = torch.sigmoid(self.ownership_head(shared))  # (B, 9)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+
+        win_value = torch.tanh(self.val_out(x))
+        score_margin = torch.tanh(self.score_out(x))
+        ownership = torch.sigmoid(self.own_out(x))
 
         return ValueHeadOutput(
             win_value=win_value,

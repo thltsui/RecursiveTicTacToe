@@ -13,6 +13,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
+import numpy as np
 import torch
 
 if TYPE_CHECKING:
@@ -33,6 +34,8 @@ class MCTSNode:
         N: Dict[int, int] — visit count per action.
         W: Dict[int, float] — total value per action.
         Q: Dict[int, float] — mean value = W[a] / N[a] (0 if N[a]==0).
+        O: Dict[int, np.ndarray] — total ownership vector per action.
+        Q_O: Dict[int, np.ndarray] — mean ownership vector per action.
         P: Dict[int, float] — prior probability from network.
         visit_count: int — total visits to this node.
         is_expanded: bool — whether children have been created.
@@ -55,6 +58,8 @@ class MCTSNode:
         self.N: dict[int, int] = {}
         self.W: dict[int, float] = {}
         self.Q: dict[int, float] = {}
+        self.O: dict[int, np.ndarray] = {}
+        self.Q_O: dict[int, np.ndarray] = {}
         self.P: dict[int, float] = {}
 
         self.visit_count: int = 0
@@ -149,17 +154,19 @@ class MCTSNode:
 
         self.is_expanded = True
 
-    def backup(self, value: float) -> None:
-        """Backpropagate value up to the root.
+    def backup(self, value: float, ownership: np.ndarray | None = None) -> None:
+        """Backpropagate value and ownership up to the root.
 
-        Updates W and N for the edge that led to this node,
-        then recursively calls parent.backup(-value) because
-        value is always from the perspective of the player who
-        just moved, so we negate when going up to parent.
+        Updates W, N, O, and Q_O for the edge that led to this node.
+        Recursively calls parent.backup with inverted perspectives.
 
         Args:
             value: Outcome value from this node's perspective (+1 win, -1 loss).
+            ownership: (9,) sub-board win probabilities from this node's perspective.
         """
+        if ownership is None:
+            ownership = np.zeros(9, dtype=np.float32)
+
         self.visit_count += 1
 
         if self.parent is not None and self.move_from_parent is not None:
@@ -171,8 +178,17 @@ class MCTSNode:
             n = self.parent.N[move]
             self.parent.Q[move] = self.parent.W[move] / n
 
-            # Negate value when going up — parent's perspective is opposite
-            self.parent.backup(-value)
+            # The ownership is from THIS node's perspective (probabilities 0.0 to 1.0).
+            # To the parent, the ownership probabilities are inverted: 1.0 - ownership
+            parent_ownership = 1.0 - ownership
+            
+            if move not in self.parent.O:
+                self.parent.O[move] = np.zeros(9, dtype=np.float32)
+            self.parent.O[move] += parent_ownership
+            self.parent.Q_O[move] = self.parent.O[move] / n
+
+            # Negate value and pass inverted ownership when going up
+            self.parent.backup(-value, parent_ownership)
 
     def get_visit_counts(self) -> dict[int, int]:
         """Return {move_idx: visit_count} for all visited children."""

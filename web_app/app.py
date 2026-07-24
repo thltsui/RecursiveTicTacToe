@@ -61,7 +61,8 @@ socketio = SocketIO(app, cors_allowed_origins="*", message_queue=redis_url)
 # ── Global state ────────────────────────────────────────────────────────────
 
 network = None
-DIFFICULTY_SIMS = {'easy': 25, 'medium': 100, 'hard': 400}
+# Number of MCTS simulations based on difficulty
+DIFFICULTY_SIMS = {'easy': 100, 'medium': 300, 'hard': 500}
 
 # Local mapping to quickly find a user's room upon disconnect
 sid_to_room = {}
@@ -93,8 +94,9 @@ def load_network(checkpoint_path=None):
     if checkpoint_path and os.path.exists(checkpoint_path):
         cp_path = checkpoint_path
     else:
-        # Prefer v5 fixed MCTS (latest), then v3, then generic
+        # Prefer v4 deep value, then v5, then v3
         search_dirs = [
+            os.path.join(PROJECT_ROOT, 'checkpoints/large_v4_deep_value'),
             os.path.join(PROJECT_ROOT, 'checkpoints/large_v5_fixed_mcts'),
             os.path.join(PROJECT_ROOT, 'checkpoints/large_v3_pure_self_play'),
         ]
@@ -221,14 +223,27 @@ def get_analysis(state, sims):
             'prior': round(policy_list[m], 4),
         })
 
+    # Calculate smoothed root expected value from MCTS Q-values
+    # root.W is evaluated from the root node's current player's perspective
+    if root.N:
+        smoothed_win_value = sum(root.W.values()) / total_visits
+        # For smoothed ownership, average the Q_O values weighted by visits
+        if hasattr(root, 'O') and root.O:
+            smoothed_ownership = np.sum(list(root.O.values()), axis=0) / total_visits
+        else:
+            smoothed_ownership = ownership
+    else:
+        smoothed_win_value = win_value
+        smoothed_ownership = ownership
+
     return {
         'policy_probs': policy_list,
         'opp_policy_probs': opp_list,
         'mcts_visits': mcts_visits,
         'mcts_q_values': mcts_q_values,
-        'win_value': float(win_value),
+        'win_value': float(smoothed_win_value),
         'score_margin': float(score_margin),
-        'ownership': ownership,
+        'ownership': smoothed_ownership.tolist() if isinstance(smoothed_ownership, np.ndarray) else smoothed_ownership,
         'top_moves': top_moves,
         'total_sims': int(total_visits),
     }, root

@@ -30,12 +30,14 @@ def main():
         num_blocks=10,
 
         # Self-play mix
-        device='cpu',
+        device='cpu',  # CPU used for MCTS to avoid MPS overhead for batch=1
         num_self_play=10,
         num_vs_random=5,
         num_vs_best=5,
         num_simulations=200,
         temperature_threshold=30,  # AlphaZero standard: temp=1 for first 30 moves
+        dirichlet_alpha=0.3,       # Explicitly set for tuning
+        dirichlet_epsilon=0.35,    # Explicitly set for tuning
 
         # Training
         batch_size=256,
@@ -56,15 +58,17 @@ def main():
         arena_every_n=10,       # arena every 10 iterations to catch issues early
         arena_games=50,
         win_rate_threshold=0.55,
+        max_iterations=1000,
+        early_stopping_patience=15,
 
         # Buffer
         buffer_capacity=200_000,
 
         # Checkpointing — fresh start with pure self-play
-        checkpoint_dir='checkpoints/large_v3_pure_self_play/',
+        checkpoint_dir='checkpoints/large_v4_deep_value/',
         checkpoint_every_n=5,
-        pretrain_checkpoint='checkpoints/pretrain_value.pt',
-        train_device='mps',
+        pretrain_checkpoint=None,  # Start from scratch due to architecture change
+        train_device='mps',        # MPS explicitly used for batched training updates
         seed=42,
     )
 

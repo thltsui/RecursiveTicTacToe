@@ -64,6 +64,8 @@ def play_self_play_game(
     network: 'UltimateTTTNetwork',
     num_simulations: int = 800,
     temperature_threshold: int = 30,
+    dirichlet_alpha: float = 0.3,
+    dirichlet_epsilon: float = 0.35,
     device: str = 'cpu',
 ) -> GameRecord:
     """Play one complete self-play game and return the game record.
@@ -104,6 +106,8 @@ def play_self_play_game(
     while not state.is_terminal:
         # Run MCTS
         root = run_mcts(state, network, num_simulations=num_simulations,
+                        dirichlet_alpha=dirichlet_alpha,
+                        dirichlet_epsilon=dirichlet_epsilon,
                         device=device)
 
         # Compute policy target from visit counts
@@ -452,12 +456,14 @@ def play_vs_best_game(
 
 def generate_mixed_batch(
     network: 'UltimateTTTNetwork',
-    num_self_play: int = 20,
-    num_vs_random: int = 0,
-    num_vs_best: int = 0,
-    best_network: 'UltimateTTTNetwork' = None,
-    num_simulations: int = 200,
+    num_self_play: int,
+    num_vs_random: int,
+    num_vs_best: int,
+    best_network: 'UltimateTTTNetwork',
+    num_simulations: int = 800,
     temperature_threshold: int = 30,
+    dirichlet_alpha: float = 0.3,
+    dirichlet_epsilon: float = 0.35,
     device: str = 'cpu',
 ) -> list[GameRecord]:
     """Generate a mixed batch of self-play data.
@@ -480,10 +486,10 @@ def generate_mixed_batch(
 
     # 1. Pure self-play
     for i in range(num_self_play):
-        record = play_self_play_game(
-            network, num_simulations, temperature_threshold, device=device
-        )
-        records.append(record)
+        records.append(play_self_play_game(
+            network, num_simulations, temperature_threshold,
+            dirichlet_alpha, dirichlet_epsilon, device
+        ))
 
     # 2. Network vs random player — only network moves recorded
     for i in range(num_vs_random):

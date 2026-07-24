@@ -230,6 +230,9 @@ async function sendMove(move, stateToSend) {
         const data = await res.json();
         gameState = data;
 
+        // The AI is done thinking, we have the new state!
+        isThinking = false;
+
         // Store analysis
         if (data.analysis) {
             currentAnalysis = data.analysis;
@@ -261,9 +264,8 @@ async function sendMove(move, stateToSend) {
     } catch (err) {
         console.error('Network error:', err);
         setStatus('Connection error — try again', '');
+        isThinking = false; // ensure we reset if there's a network error
     }
-
-    isThinking = false;
 }
 
 // ── Multiplayer (Socket.IO) ───────────────────────────────────────────────
@@ -472,7 +474,7 @@ function renderBoard() {
         } else if (sbResult === 2) {
             subBoardEl.classList.add('drawn');
             addSubBoardOverlay(subBoardEl, '—', 'draw');
-        } else if (!gameState.is_terminal && gameActive && !isThinking) {
+        } else if (!gameState.is_terminal && gameActive && isMyTurn) {
             if (activeSb === -1) {
                 subBoardEl.classList.add('active');
             } else if (activeSb === sb) {
@@ -671,7 +673,7 @@ function updateAnalysisPanel(analysis) {
     const margin = analysis.score_margin;
     const marginEl = scoreMarginValue;
     marginEl.textContent = (margin >= 0 ? '+' : '') + margin.toFixed(3);
-    marginEl.style.color = margin > 0.05 ? 'var(--magenta)' : margin < -0.05 ? 'var(--cyan)' : 'var(--text-secondary)';
+    marginEl.style.color = margin > 0.05 ? 'var(--cyan)' : margin < -0.05 ? 'var(--magenta)' : 'var(--text-secondary)';
 
     // Sims
     simsValue.textContent = analysis.total_sims.toLocaleString();
@@ -735,23 +737,27 @@ function updateOwnership(ownership) {
         }
 
         // Map ownership value to color
-        const pctText = Math.round(o * 100);
-        if (val) {
-            val.textContent = pctText + '%';
-            val.style.color = 'var(--text-primary)';
-        }
-
-        if (o > 0.6) {
-            // AI-leaning (magenta)
-            const intensity = (o - 0.5) * 2;
-            cell.style.background = `rgba(239, 71, 111, ${intensity * 0.3})`;
-        } else if (o < 0.4) {
-            // Human-leaning (cyan)
-            const intensity = (0.5 - o) * 2;
-            cell.style.background = `rgba(6, 214, 160, ${intensity * 0.3})`;
+        if (o > 0.55) {
+            const pctText = Math.round(o * 100);
+            cell.style.background = `rgba(6, 214, 160, ${(o - 0.5) * 0.8})`;
+            if (val) {
+                val.textContent = pctText + '%';
+                val.style.color = 'var(--cyan)';
+            }
+        } else if (o < 0.45) {
+            const pctText = Math.round((1 - o) * 100); // Display the AI's probability!
+            cell.style.background = `rgba(239, 71, 111, ${(0.5 - o) * 0.8})`;
+            if (val) {
+                val.textContent = pctText + '%';
+                val.style.color = 'var(--magenta)';
+            }
         } else {
-            // Contested (gold)
-            cell.style.background = `rgba(255, 209, 102, 0.1)`;
+            const pctText = Math.round(o * 100);
+            cell.style.background = 'rgba(255, 255, 255, 0.05)';
+            if (val) {
+                val.textContent = pctText + '%';
+                val.style.color = 'var(--text-primary)';
+            }
         }
     }
 }
