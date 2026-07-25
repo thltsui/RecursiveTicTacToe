@@ -64,6 +64,15 @@ network = None
 # Number of MCTS simulations based on difficulty
 DIFFICULTY_SIMS = {'easy': 100, 'medium': 300, 'hard': 500}
 
+def c_puct_for_phase(move_count: int) -> float:
+    """Late-game exploration boost -- helps PUCT surface low-prior-but-critical
+    branches once the game has narrowed. See debugging notes: the AI's value
+    estimate correctly recognizes a losing position one move too late, traced to
+    PUCT under-exploring low-prior-but-critical branches at c_puct=1.0."""
+    if move_count >= 45:
+        return 3.0
+    return 1.0
+
 # Local mapping to quickly find a user's room upon disconnect
 sid_to_room = {}
 
@@ -189,11 +198,13 @@ def get_analysis(state, sims):
     ownership = net_output.ownership.detach().cpu().tolist()
 
     # Run MCTS
+    c_puct = c_puct_for_phase(state.move_count)
     root = search_mod.run_mcts(
         safe_state, network,
         num_simulations=sims,
         dirichlet_epsilon=0.0,
         device='cpu',
+        c_puct=c_puct,
     )
 
     # MCTS visit counts and Q-values for all 81 cells
