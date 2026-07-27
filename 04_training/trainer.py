@@ -263,6 +263,11 @@ def train(config: TrainingConfig) -> None:
 
             if train_device != config.device:
                 network.to(train_device)
+                # Ensure optimizer states are on the same device as the network parameters
+                for state in optimizer.state.values():
+                    for k, v in state.items():
+                        if isinstance(v, torch.Tensor) and v.device != next(network.parameters()).device:
+                            state[k] = v.to(train_device)
             network.train()
             total_loss_accum = 0.0
             component_accum = {k: 0.0 for k in
