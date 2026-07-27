@@ -76,4 +76,6 @@ Put it together: at any moment during search, the PUCT score for move *a* from p
 
 A move scores high if it is *good*, or *underexplored*, or *recommended by the network*. The search will always prefer a well-supported good move, but it will also revisit uncertain moves and network-favoured moves rather than ignoring them. Nothing is permanently abandoned.
 
+![The same five moves (A-E) scored by PUCT early and late in search: at N(s) = 10, the network's prior P(s,a) still dominates and move A leads mainly because P = 0.40 gives it the largest exploration bonus; at N(s) = 500, visit counts have caught up with the priors, Q(s,a) is doing most of the work, and move A leads now because its accumulated value backs it up.](images/fig_t4_puct_decomposition.svg)
+
 As simulations run, the first and third forces gradually dominate the second. Q values stabilise as they are backed by many samples; visit counts grow and the exploration bonus shrinks; the network prior, fixed throughout the search, recedes. What started as prior-guided exploration ends as evidence-guided exploitation.

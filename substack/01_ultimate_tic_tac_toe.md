@@ -14,15 +14,15 @@ Ultimate Tic-Tac-Toe fixes this by nesting the game inside itself.
 
 The board is a 3×3 grid of smaller 3×3 grids — nine local boards arranged in a larger global board. Each local board is a standard game of Tic-Tac-Toe. The global board tracks which player has won each local board.
 
-<!-- Figure: figures/fig1_blank_board.png — "The 9 sub-boards of Ultimate Tic-Tac-Toe. Sub-boards are numbered 0–8; each is a standard 3×3 Tic-Tac-Toe grid." -->
+![The 9 sub-boards of Ultimate Tic-Tac-Toe. Sub-boards are numbered 0–8; each is a standard 3×3 Tic-Tac-Toe grid.](images/fig1_blank_board.png)
 
 The twist is in how moves work. When you place your mark in a square of a local board, the position of that square within its local board determines which local board your opponent must play in next. Put your mark in the top-right square of any local board, and your opponent's next move must be made somewhere in the top-right local board.
 
-<!-- Figure: figures/fig2_send_rule.png — "The 'send your opponent' rule. Left: free choice on the first move — all 9 sub-boards open (yellow). Right: X plays in sub-board 1, cell 5 (orange dot); cell index 5 = centre-right, so O is forced into sub-board 5 (highlighted yellow)." -->
+![The 'send your opponent' rule. Left: free choice on the first move — all 9 sub-boards open (yellow). Right: X plays in sub-board 1, cell 5 (orange dot); cell index 5 = centre-right, so O is forced into sub-board 5 (highlighted yellow).](images/fig2_send_rule.png)
 
 If your opponent is sent to a local board that is already decided (won or drawn), they may play in any open local board of their choosing.
 
-<!-- Figure: figures/fig5_free_choice.png — "The exception: when the rule would send a player to an already-decided sub-board, they get free choice instead. Left: O plays in sub-board 2, centre cell — the rule says to send X to sub-board 4. Right: sub-board 4 is already won by X, so X may play in any of the yellow (open) sub-boards." -->
+![The exception: when the rule would send a player to an already-decided sub-board, they get free choice instead. Left: O plays in sub-board 2, centre cell — the rule says to send X to sub-board 4. Right: sub-board 4 is already won by X, so X may play in any of the yellow (open) sub-boards.](images/fig5_free_choice.png)
 
 The game ends when one player wins three local boards in a row on the global board — horizontal, vertical, or diagonal.
 

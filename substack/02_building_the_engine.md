@@ -263,7 +263,7 @@ The 7 channels encode different types of information:
 
 The player-relative encoding (channels 0 and 1 flip depending on whose turn it is) means the network learns symmetrically — it always sees the board from the perspective of the player to move. Without this, the network would need to learn separate strategies for X and O.
 
-<!-- Figure: figures/fig4_tensor_channels.png — "The 7 channels of encode_state after 5 moves (O to move). Channels 0 and 1 show pieces from the current player's perspective. Channel 5 highlights the active sub-board. Channel 6 is all 0 because it is O's turn." -->
+![The 7 channels of encode_state after 5 moves (O to move). Channels 0 and 1 show pieces from the current player's perspective. Channel 5 highlights the active sub-board. Channel 6 is all 0 because it is O's turn.](images/fig4_tensor_channels.png)
 
 ## 7. Putting It Together: A Random Game
 
