@@ -18,10 +18,7 @@ COPY 03_mcts/ ./03_mcts/
 COPY web_app/ ./web_app/
 
 # Copy only the best/necessary checkpoints to keep image size small
-COPY checkpoints/best_model.pt ./checkpoints/
-COPY checkpoints/large_v4_deep_value/best_model.pt ./checkpoints/large_v4_deep_value/
-COPY checkpoints/large_v5_fixed_mcts/best_model.pt ./checkpoints/large_v5_fixed_mcts/
-COPY checkpoints/large_v3_pure_self_play/best_model.pt ./checkpoints/large_v3_pure_self_play/
+COPY checkpoints/best_ever_model.pt ./checkpoints/
 
 EXPOSE 5001
 
