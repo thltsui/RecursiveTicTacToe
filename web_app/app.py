@@ -128,23 +128,29 @@ def load_network(checkpoint_path=None):
     if checkpoint_path and os.path.exists(checkpoint_path):
         cp_path = checkpoint_path
     else:
-        # Prefer v4 deep value, then v5, then v3
-        search_dirs = [
-            os.path.join(PROJECT_ROOT, 'checkpoints/large_v4_deep_value'),
-            os.path.join(PROJECT_ROOT, 'checkpoints/large_v5_fixed_mcts'),
-            os.path.join(PROJECT_ROOT, 'checkpoints/large_v3_pure_self_play'),
-        ]
         cp_path = None
-        for d in search_dirs:
-            if os.path.isdir(d):
-                best = os.path.join(d, 'best_model.pt')
-                if os.path.exists(best):
-                    cp_path = best
-                    break
-                ckpts = sorted([f for f in os.listdir(d) if f.endswith('.pt') and 'checkpoint' in f])
-                if ckpts:
-                    cp_path = os.path.join(d, ckpts[-1])
-                    break
+        # Always prefer the Git LFS tracked model first
+        best_ever = os.path.join(PROJECT_ROOT, 'checkpoints/best_ever_model.pt')
+        if os.path.exists(best_ever):
+            cp_path = best_ever
+        
+        if not cp_path:
+            # Fallback legacy search
+            search_dirs = [
+                os.path.join(PROJECT_ROOT, 'checkpoints/large_v4_deep_value'),
+                os.path.join(PROJECT_ROOT, 'checkpoints/large_v5_fixed_mcts'),
+                os.path.join(PROJECT_ROOT, 'checkpoints/large_v3_pure_self_play'),
+            ]
+            for d in search_dirs:
+                if os.path.isdir(d):
+                    best = os.path.join(d, 'best_model.pt')
+                    if os.path.exists(best):
+                        cp_path = best
+                        break
+                    ckpts = sorted([f for f in os.listdir(d) if f.endswith('.pt') and 'checkpoint' in f])
+                    if ckpts:
+                        cp_path = os.path.join(d, ckpts[-1])
+                        break
 
         if not cp_path:
             pts = sorted(glob.glob(os.path.join(PROJECT_ROOT, 'checkpoints/*.pt')))

@@ -8,6 +8,7 @@ venv/
 
 # Local checkpoints and logs
 checkpoints/
+!checkpoints/best_ever_model.pt
 logs/
 *.pt
 *.txt
