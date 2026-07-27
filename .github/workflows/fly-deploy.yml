@@ -19,6 +19,8 @@ jobs:
     concurrency: deploy-group  # avoid overlapping deploys if pushes land close together
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - uses: superfly/flyctl-actions/setup-flyctl@master
       - run: flyctl deploy --remote-only
         env:
