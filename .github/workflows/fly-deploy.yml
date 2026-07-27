@@ -1,0 +1,25 @@
+name: Fly Deploy
+
+# Deploys the web app to Fly.io whenever the webapp branch is updated.
+# Requires a repo secret named FLY_API_TOKEN (Settings -> Secrets and variables
+# -> Actions -> New repository secret) containing a Fly.io deploy token.
+# Generate one from your own machine with `fly tokens create deploy`
+# (or `flyctl auth token` on older flyctl versions) -- do not commit the
+# token value anywhere, it only ever lives in the GitHub secret.
+
+on:
+  push:
+    branches:
+      - webapp
+
+jobs:
+  deploy:
+    name: Deploy app
+    runs-on: ubuntu-latest
+    concurrency: deploy-group  # avoid overlapping deploys if pushes land close together
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

@@ -67,12 +67,35 @@ def play_self_play_game(
     dirichlet_alpha: float = 0.3,
     dirichlet_epsilon: float = 0.35,
     device: str = 'cpu',
+    dirichlet_epsilon_boost: float = 0.55,
+    dirichlet_boost_plies: int = 5,
+    forced_opening: list[int] | None = None,
 ) -> GameRecord:
     """Play one complete self-play game and return the game record.
 
     Temperature schedule:
         - Moves 0 to temperature_threshold: temperature = 1.0 (exploration).
         - Moves after temperature_threshold: temperature = 0.0 (greedy).
+
+    Root Dirichlet-noise schedule:
+        - Moves 0..dirichlet_boost_plies-1 use dirichlet_epsilon_boost.
+        - Moves after that use the normal dirichlet_epsilon.
+        - Set dirichlet_boost_plies=0 to disable boosting (flat dirichlet_epsilon
+          throughout, matching old behavior).
+        See 03_mcts/search.py's epsilon_for_ply() for the rationale: this
+        counteracts PUCT under-exploring low-prior openings early in training,
+        which otherwise lets an early, possibly-wrong belief about a move
+        compound instead of getting re-examined.
+
+    Forced opening:
+        - If forced_opening is given, it's a list of move indices that override
+          MCTS's own move selection for the first len(forced_opening) plies of
+          the game. Search still runs at those plies (so policy_target reflects
+          genuine MCTS visit statistics), but the move actually applied to the
+          board is taken from forced_opening instead of select_move()'s output.
+          This guarantees the network accumulates real training data on
+          specific lines regardless of whether its own search currently
+          favors them -- see generate_mixed_batch()'s forced_opening_fraction.
 
     After game ends, compute and attach value/score/ownership targets to
     each MoveRecord in the game.
@@ -82,6 +105,10 @@ def play_self_play_game(
         num_simulations: MCTS simulations per move.
         temperature_threshold: Move number after which temperature -> 0.
         device: Compute device.
+        dirichlet_epsilon_boost: Root epsilon used during the early-ply boost window.
+        dirichlet_boost_plies: Number of opening plies over which the boost applies.
+        forced_opening: Optional list of move indices to force at the start of
+            the game, in order, overriding MCTS's own move choice for those plies.
 
     Returns:
         Complete GameRecord with all targets computed.
@@ -98,16 +125,26 @@ def play_self_play_game(
     get_legal_move_mask = rules_mod.get_legal_move_mask
     run_mcts = search_mod.run_mcts
     select_move = search_mod.select_move
+    epsilon_for_ply = search_mod.epsilon_for_ply
     compute_policy_target = policy_target_mod.compute_policy_target
 
     state = create_initial_state()
     move_records: list[MoveRecord] = []
+    ply = 0
 
     while not state.is_terminal:
+        # Root Dirichlet epsilon: boosted for the first few plies, then normal.
+        ply_epsilon = epsilon_for_ply(
+            state.move_count,
+            base_epsilon=dirichlet_epsilon,
+            boosted_epsilon=dirichlet_epsilon_boost,
+            boost_plies=dirichlet_boost_plies,
+        )
+
         # Run MCTS
         root = run_mcts(state, network, num_simulations=num_simulations,
                         dirichlet_alpha=dirichlet_alpha,
-                        dirichlet_epsilon=dirichlet_epsilon,
+                        dirichlet_epsilon=ply_epsilon,
                         device=device)
 
         # Compute policy target from visit counts
@@ -117,7 +154,16 @@ def play_self_play_game(
 
         # Select move with temperature schedule
         temp = 1.0 if state.move_count < temperature_threshold else 0.0
-        move = select_move(root, temperature=temp)
+
+        if forced_opening is not None and ply < len(forced_opening):
+            move = forced_opening[ply]
+            if move not in legal_moves:
+                # Safety fallback -- forced move illegal in this position
+                # (shouldn't happen for a well-formed opening pool, but don't
+                # let a bad config value crash a training run).
+                move = select_move(root, temperature=temp)
+        else:
+            move = select_move(root, temperature=temp)
 
         # Record this move
         record = MoveRecord(
@@ -134,6 +180,7 @@ def play_self_play_game(
         from importlib import import_module
         rules = import_module('01_game.rules')
         state = rules.apply_move(state, move)
+        ply += 1
 
     # Set opponent policy targets: move i's opp target = move i+1's policy target
     for i in range(len(move_records) - 1):
@@ -464,11 +511,25 @@ def generate_mixed_batch(
     temperature_threshold: int = 30,
     dirichlet_alpha: float = 0.3,
     dirichlet_epsilon: float = 0.35,
+    dirichlet_epsilon_boost: float = 0.55,
+    dirichlet_boost_plies: int = 5,
+    forced_opening_fraction: float = 0.0,
+    forced_opening_pool: 'list[list[int]] | None' = None,
     device: str = 'cpu',
 ) -> list[GameRecord]:
     """Generate a mixed batch of self-play data.
 
     Mix of pure self-play, vs random opponent, and vs best checkpoint.
+
+    Forced opening diversity: instead of relying only on Dirichlet noise and
+    temperature to naturally produce diverse openings, a configurable fraction
+    of the pure self-play games are made to start from a pre-selected opening
+    move, cycling round-robin through forced_opening_pool. This guarantees the
+    network accumulates training data on those lines regardless of how skewed
+    its own search priors have become for them -- a line no longer needs to
+    "win" the search to get played and recorded. Only applied to pure
+    self-play games (not vs-random/vs-best), so the mix still contains plenty
+    of freely-chosen openings.
 
     Args:
         network: Current network.
@@ -477,18 +538,42 @@ def generate_mixed_batch(
         num_vs_best: Number of games vs best opponent.
         best_network: The best network checkpoint (if available).
         num_simulations: MCTS simulations per move.
+        dirichlet_epsilon_boost: Root epsilon during the early-ply boost window
+            (see epsilon_for_ply() in 03_mcts/search.py).
+        dirichlet_boost_plies: Number of opening plies the boost applies to.
+            Set to 0 to disable and use flat dirichlet_epsilon throughout.
+        forced_opening_fraction: Fraction (0.0-1.0) of num_self_play games per
+            call that are forced to start from an opening in forced_opening_pool
+            instead of letting MCTS choose freely. 0.0 = disabled (default).
+        forced_opening_pool: List of forced-opening move-index lists to cycle
+            through round-robin. Defaults to the 9 cells of the center
+            sub-board (sub-board index 4) -- i.e. encode_move(4, 0..8) -- which
+            covers the center-center opening plus its 8 neighbors, the exact
+            line found to be almost never chosen by MCTS's own search.
         device: Compute device.
 
     Returns:
         List of GameRecord objects (shuffled).
     """
+    if forced_opening_pool is None:
+        # Default pool: all 9 first moves into the center sub-board (index 4).
+        # encode_move(sub_board, cell) = sub_board * 9 + cell.
+        forced_opening_pool = [[4 * 9 + cell] for cell in range(9)]
+
     records: list[GameRecord] = []
 
     # 1. Pure self-play
+    num_forced = int(round(num_self_play * forced_opening_fraction))
     for i in range(num_self_play):
+        forced = None
+        if i < num_forced and forced_opening_pool:
+            forced = forced_opening_pool[i % len(forced_opening_pool)]
         records.append(play_self_play_game(
             network, num_simulations, temperature_threshold,
-            dirichlet_alpha, dirichlet_epsilon, device
+            dirichlet_alpha, dirichlet_epsilon, device,
+            dirichlet_epsilon_boost=dirichlet_epsilon_boost,
+            dirichlet_boost_plies=dirichlet_boost_plies,
+            forced_opening=forced,
         ))
 
     # 2. Network vs random player — only network moves recorded

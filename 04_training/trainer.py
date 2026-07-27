@@ -52,6 +52,9 @@ class TrainingConfig:
     temperature_threshold: int   = 30
     dirichlet_alpha:       float = 0.3
     dirichlet_epsilon:     float = 0.35
+    dirichlet_epsilon_boost: float = 0.55   # root epsilon for the first dirichlet_boost_plies moves
+    dirichlet_boost_plies: int   = 5        # 0 disables boosting (flat dirichlet_epsilon)
+    forced_opening_fraction: float = 0.0    # fraction of self-play games forced through forced_opening_pool
 
     # Training
     batch_size:            int   = 256
@@ -235,6 +238,9 @@ def train(config: TrainingConfig) -> None:
                 temperature_threshold=config.temperature_threshold,
                 dirichlet_alpha=config.dirichlet_alpha,
                 dirichlet_epsilon=config.dirichlet_epsilon,
+                dirichlet_epsilon_boost=config.dirichlet_epsilon_boost,
+                dirichlet_boost_plies=config.dirichlet_boost_plies,
+                forced_opening_fraction=config.forced_opening_fraction,
                 device=config.device,
             )
             for record in records:

@@ -65,12 +65,37 @@ network = None
 DIFFICULTY_SIMS = {'easy': 100, 'medium': 300, 'hard': 500}
 
 def c_puct_for_phase(move_count: int) -> float:
-    """Late-game exploration boost -- helps PUCT surface low-prior-but-critical
-    branches once the game has narrowed. See debugging notes: the AI's value
-    estimate correctly recognizes a losing position one move too late, traced to
-    PUCT under-exploring low-prior-but-critical branches at c_puct=1.0."""
+    """Exploration boost at both ends of the game -- helps PUCT surface
+    low-prior-but-critical branches instead of concentrating hard on whatever
+    currently has the best Q.
+
+    Late game (move_count >= 45): boosted to 3.0. See debugging notes: the
+    AI's value estimate correctly recognizes a losing position one move too
+    late, traced to PUCT under-exploring low-prior-but-critical branches at
+    c_puct=1.0. The tree is narrow here (few legal moves left), so a strong
+    boost still concentrates visits usefully rather than spreading them too
+    thin.
+
+    Early game (move_count < 5, matching the training-side Dirichlet-noise
+    boost window used in self-play): boosted to 2.0. Root search was found
+    to almost never seriously re-examine certain openings (near-zero visits
+    across most of a training run -- see debugging notes), the same
+    prior-starvation mechanism as the endgame case. A more moderate boost is
+    used here than late-game because branching factor is much higher at the
+    opening (up to 81 legal moves vs. a handful late-game), so the same fixed
+    simulation budget divided across a much wider set of candidates needs a
+    gentler nudge -- pushing all the way to 3.0 here risked diluting visits
+    too thin to meaningfully re-rank anything.
+
+    All other plies: standard c_puct=1.0. This is an inference-only search
+    tweak -- it changes how visits get allocated during MCTS, not what the
+    underlying network believes, so it does not by itself fix miscalibrated
+    raw value/policy estimates. See training-side fixes (dirichlet_epsilon
+    boost + forced_opening_fraction) for that."""
     if move_count >= 45:
         return 3.0
+    if move_count < 5:
+        return 2.0
     return 1.0
 
 # Local mapping to quickly find a user's room upon disconnect

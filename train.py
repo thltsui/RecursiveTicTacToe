@@ -39,6 +39,15 @@ def main():
         dirichlet_alpha=0.3,       # Explicitly set for tuning
         dirichlet_epsilon=0.35,    # Explicitly set for tuning
 
+        # Early-ply exploration boost + forced opening diversity
+        # (added after diagnosing opening-move search collapse: some openings
+        # received search visits in <5% of late-training games and were never
+        # once MCTS's top choice, letting an early belief compound unchecked)
+        dirichlet_epsilon_boost=0.55,   # root epsilon for the first few plies
+        dirichlet_boost_plies=5,        # boost applies to moves 0-4
+        forced_opening_fraction=0.2,    # 20% of self-play games/iteration forced
+                                         # through the center-sub-board opening pool
+
         # Training
         batch_size=256,
         batches_per_iteration=100,  # auto-capped if buffer is small
