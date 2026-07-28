@@ -1,6 +1,12 @@
 # From Zero to AlphaZero: How PyTorch Builds a Computational Graph
 
-Every post in this series so far has treated the network as a function: feed in a board state, get back a policy and a value. [PUCT — How AlphaZero Weighs Curiosity, Evidence, and Intuition](https://tthl.substack.com/p/from-zero-to-alphazero-puct-how-alphazero) leaned on that abstraction most directly, treating Q(s, a) and P(s, a) as given quantities without asking where either number actually comes from. This post opens that box: how does `loss.backward()`, one line at the end of `train_step()`, know how to compute gradients for every one of the network's parameters, across a trunk shared by five different loss terms, without anyone writing a single derivative by hand? The answer is the computational graph, and PyTorch builds one automatically, every time, as a side effect of running the forward pass. We walk through how that works using the actual network, loss function, and MCTS code from this repository rather than toy examples.
+Last time, in *What Is a Computational Graph, Really?*, we built the whole idea of a computational graph from a toy example: a one-parameter model, three operations, six nodes, and three recorded edges chained backward to reach the gradient by hand. The real network behind this project's agent runs on exactly the same mechanism, just scaled up. Its trunk, the input convolution followed by eight residual blocks, is nothing more than a longer chain of the same kind of simple tensor operations:
+
+$$h = B^{(8)}\Big(B^{(7)}\big(\dots B^{(1)}(\text{Conv}(x)) \dots\big)\Big)$$
+
+where each $B^{(i)}$ is one residual block (itself a small composition of convolutions, additions, and a `tanh`), and every operation in that chain, the input convolution and all eight blocks, carries its own slice of the network's parameters $\theta$. Past the trunk, $h$ is the single shared representation both heads read from: $\text{win\_value} = V_\theta(h)$ alongside $\pi_\theta(h)$ for the policy logits and three more $\theta$-parameterised outputs besides. This is exactly why we talk about "tuning weights" in the first place: $\theta$ is not one set of numbers behind one function, it is the parameters of every convolution in the trunk and every head bolted onto it at once, and training means adjusting all of them together so predictions like $V_\theta(h)$ get closer to the value the search already worked out for $Q(s, a)$.
+
+The graph this produces is bigger and branches in more places than the toy example's straight line, an input splitting into a trunk, the trunk splitting again into five heads, but it's built and walked exactly the same way: one recorded edge at a time, forward, and one local derivative at a time, backward. This post traces that through the actual code.
 
 **Previous posts in this series:**
 
@@ -9,6 +15,7 @@ Every post in this series so far has treated the network as a function: feed in 
 - [From Zero to AlphaZero: The Reinforcement Learning Landscape](https://tthl.substack.com/p/from-zero-to-alphazero-the-reinforcement)
 - [From Zero to AlphaZero: The Explore-Exploit Trade-off — The Bandit Algorithm Behind AlphaZero](https://tthl.substack.com/p/t3-the-slot-machine-problem-where)
 - [From Zero to AlphaZero: PUCT — How AlphaZero Weighs Curiosity, Evidence, and Intuition](https://tthl.substack.com/p/from-zero-to-alphazero-puct-how-alphazero)
+- *From Zero to AlphaZero: What Is a Computational Graph, Really?* (draft)
 
 ---
 
@@ -48,6 +55,20 @@ def forward(self, x: torch.Tensor) -> torch.Tensor:
 Every line here does two things at once: it computes a tensor, and it silently extends the graph. `self.conv1(x)` returns a new tensor that also carries a reference back to `x` and to `conv1`'s weights, tagged with "this came from a 2D convolution," exactly what we need later to work out how the loss changes with respect to those weights. The same happens for `bn1`, `relu`, `conv2`, `bn2`. The global pooling branch builds its own chain in parallel: `x.mean(dim=[2, 3])` records that this came from averaging over those two dimensions, `self.global_mlp(pooled)` extends it through two linear layers and a ReLU, and the broadcast step records how a `(B, C)` vector expanded back out to `(B, C, 9, 9)`, so the reverse operation, summing the incoming gradient back down, is well defined. The final line, `local + global_broadcast + identity`, joins all three branches, so a residual block's contribution to the graph is an entire diamond: the input splits into two branches, an unbounded number of operations happen inside each, and everything reconverges at the addition.
 
 Stack eight of these blocks, add the input convolution before and the two heads after, and the full forward pass through `UltimateTTTNetwork.forward()` (`02_network/network.py`) produces a single graph with thousands of nodes, built without any of that structure being declared anywhere. Nobody wrote down the gradient of a residual block in advance, PyTorch derived it by recording what actually happened and knowing how to invert each individual operation.
+
+Let's make this concrete for each op in the local branch, using the code above: $x \in \mathbb{R}^{B\times C\times 9\times 9}$ is the block's input.
+
+**conv1.** $z_1 = W_1 * x$, a 3×3 convolution with no bias: $(z_1)_{b,c,i,j} = \sum_{c'} \sum_{di,dj \in \{-1,0,1\}} (W_1)_{c,c',di+1,dj+1}\, x_{b,c',i+di,j+dj}$ (zero-padded at the edges). Two facts determine what gets saved for backward here: $\partial z_1/\partial W_1$ depends on $x$, and $\partial z_1/\partial x$ depends on $W_1$, so the graph node for `conv1` holds onto $x$ itself and a reference to `conv1.weight`, since both are needed once gradients start flowing back through this node.
+
+**bn1.** In train mode, BatchNorm computes its own statistics from the batch actually passing through it: $\mu_B = \frac{1}{BHW}\sum_{b,i,j} (z_1)_{b,c,i,j}$ and $\sigma_B^2 = \frac{1}{BHW}\sum_{b,i,j} \big((z_1)_{b,c,i,j} - \mu_B\big)^2$, per channel $c$. Then $\hat z_1 = (z_1 - \mu_B)/\sqrt{\sigma_B^2+\epsilon}$, and the output is $y_1 = \gamma_1 \hat z_1 + \beta_1$. This is the subtle part: because $\mu_B$ and $\sigma_B^2$ are themselves computed from $z_1$, they are graph nodes too, not fixed constants, so gradients flow back through the mean and variance computation as well as through the normalisation step. What actually gets saved for backward is $\hat z_1$ and $\gamma_1$, since BatchNorm's backward formula needs both to correctly account for how nudging one element of $z_1$ shifts the batch statistics every other element was normalised against.
+
+**relu.** $a_1 = \max(0, y_1)$. All that gets saved here is a single boolean mask, $y_1 > 0$, per element: backward just multiplies the incoming gradient by that mask, zeroing out any position where the forward pass was already at zero.
+
+**conv2, bn2.** Structurally identical to conv1/bn1: $z_2 = W_2 * a_1$ saves $a_1$ and $W_2$; $y_2 = \gamma_2\hat z_2+\beta_2$ saves $\hat z_2$ and $\gamma_2$.
+
+Meanwhile the global branch builds its own graph in parallel: `pooled = x.mean(dim=[2,3])` computes $p_{b,c} = \frac{1}{81}\sum_{i,j} x_{b,c,i,j}$ (backward of a mean just divides the incoming gradient by 81 and copies it back to every position it came from), then two linear layers with a ReLU between them produce `global_vec`, and the broadcast step copies that $(B,C)$ vector out to $(B,C,9,9)$ (backward here does the reverse: sum the incoming gradient back down over the 81 positions it was copied to).
+
+The final line, `out = relu(local + global_broadcast + identity)`, is where the diamond actually closes. Addition is the simplest possible node to invert: nudging any one of the three inputs by a small amount changes the sum by exactly that amount, so whatever gradient arrives at this node gets copied, unchanged, down all three branches at once. That's the concrete meaning of "the block's own input gets three separate contributions to its gradient": one straight through the skip connection with a coefficient of exactly 1, one through the entire conv1→bn1→relu→conv2→bn2 chain, and one through the mean→MLP→broadcast chain. Backward does not pick one path, it sums all of them, at exactly the point where the forward pass had branched.
 
 ## The backward pass: one shared trunk, five loss terms pulling on it at once
 

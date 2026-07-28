@@ -13,6 +13,7 @@ Last essay was [How PyTorch Builds a Computational Graph](https://tthl.substack.
 - [From Zero to AlphaZero: The Reinforcement Learning Landscape](https://tthl.substack.com/p/from-zero-to-alphazero-the-reinforcement)
 - [From Zero to AlphaZero: The Explore-Exploit Trade-off — The Bandit Algorithm Behind AlphaZero](https://tthl.substack.com/p/t3-the-slot-machine-problem-where)
 - [From Zero to AlphaZero: PUCT — How AlphaZero Weighs Curiosity, Evidence, and Intuition](https://tthl.substack.com/p/from-zero-to-alphazero-puct-how-alphazero)
+- *From Zero to AlphaZero: What Is a Computational Graph, Really?* (draft)
 - *From Zero to AlphaZero: How PyTorch Builds a Computational Graph* (draft)
 
 ---
