@@ -204,7 +204,7 @@ def dict_to_state(d):
     )
 
 
-def get_analysis(state, sims):
+def get_analysis(state, sims, add_noise=False):
     """Run network + MCTS and return full analysis payload for a position."""
     # Create an explicit copy of the state for thread safety
     safe_state = state.copy()
@@ -230,10 +230,11 @@ def get_analysis(state, sims):
 
     # Run MCTS
     c_puct = c_puct_for_phase(state.move_count)
+    epsilon = 0.15 if add_noise else 0.0
     root = search_mod.run_mcts(
         safe_state, network,
         num_simulations=sims,
-        dirichlet_epsilon=0.0,
+        dirichlet_epsilon=epsilon,
         device='cpu',
         c_puct=c_puct,
     )
@@ -375,7 +376,8 @@ def do_ai_move(state, sims):
     4. Return: new state + AI's move + human-perspective analysis
     """
     # Step 1: AI decides its move (internal, not surfaced)
-    ai_analysis, root = get_analysis(state, sims)
+    # Add inference noise so the AI explores creative 2nd/3rd best pathways
+    ai_analysis, root = get_analysis(state, sims, add_noise=True)
     ai_move = search_mod.select_move(root, temperature=0.0)
 
     # Step 2: Apply AI's move
