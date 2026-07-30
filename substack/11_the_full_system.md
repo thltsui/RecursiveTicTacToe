@@ -17,7 +17,7 @@ Everything here is code from `02_network/`, `03_mcts/`, `04_training/`.
 - [From Zero to AlphaZero: The Reinforcement Learning Landscape](https://tthl.substack.com/p/from-zero-to-alphazero-the-reinforcement)
 - [From Zero to AlphaZero: The Explore-Exploit Trade-off — The Bandit Algorithm Behind AlphaZero](https://tthl.substack.com/p/t3-the-slot-machine-problem-where)
 - [From Zero to AlphaZero: PUCT — How AlphaZero Weighs Curiosity, Evidence, and Intuition](https://tthl.substack.com/p/from-zero-to-alphazero-puct-how-alphazero)
-- *From Zero to AlphaZero: What Is a Computational Graph, Really?* (draft)
+- *From Zero to AlphaZero: What Is a Computational Graph, Really?* (link TBD)
 - *From Zero to AlphaZero: How PyTorch Builds a Computational Graph* (draft)
 - *From Zero to AlphaZero: Teaching an Agent to Play — From Q-Tables to Deep Q-Networks* (draft)
 - *From Zero to AlphaZero: Inside One MCTS Simulation — How AlphaZero Thinks Move by Move* (draft)
@@ -313,7 +313,7 @@ A few points are worth unpacking.
 
 **Opponent policy target** is simply the next position's policy target, set in a second pass after the game ends. It trains an auxiliary head to predict the opponent's next move, which forces the trunk to maintain representations useful for both sides.
 
-**Anti-draw shaping:** draws get `value_target = -0.5` instead of the more obvious 0. That penalizes both players for a draw, pushing the network to prefer risky play in winning positions. Without this, agents can develop a bias toward draws as a "safe" outcome.
+**Anti-draw shaping:** draws get `value_target = -0.5` instead of the more obvious 0. That penalises both players for a draw, pushing the network to prefer risky play in winning positions. Without this, agents can develop a bias toward draws as a "safe" outcome.
 
 ---
 

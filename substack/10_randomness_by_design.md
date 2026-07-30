@@ -9,7 +9,7 @@ Last essay was [Inside One MCTS Simulation — How AlphaZero Thinks Move by Move
 - [From Zero to AlphaZero: The Reinforcement Learning Landscape](https://tthl.substack.com/p/from-zero-to-alphazero-the-reinforcement)
 - [From Zero to AlphaZero: The Explore-Exploit Trade-off — The Bandit Algorithm Behind AlphaZero](https://tthl.substack.com/p/t3-the-slot-machine-problem-where)
 - [From Zero to AlphaZero: PUCT — How AlphaZero Weighs Curiosity, Evidence, and Intuition](https://tthl.substack.com/p/from-zero-to-alphazero-puct-how-alphazero)
-- *From Zero to AlphaZero: What Is a Computational Graph, Really?* (draft)
+- *From Zero to AlphaZero: What Is a Computational Graph, Really?* (link TBD)
 - *From Zero to AlphaZero: How PyTorch Builds a Computational Graph* (draft)
 - *From Zero to AlphaZero: Teaching an Agent to Play — From Q-Tables to Deep Q-Networks* (draft)
 - *From Zero to AlphaZero: Inside One MCTS Simulation — How AlphaZero Thinks Move by Move* (draft)
@@ -30,7 +30,7 @@ where T is the temperature parameter.
 
 T = 0 (greedy): always pick the most visited move, completely deterministic, used during arena evaluation.
 
-T = 1.0: sample proportional to visit counts, so if MCTS gave 450 visits to move A and 350 to move B, move A gets picked about 56% of the time. This introduces significant randomness.
+T = 1.0: sample proportional to visit counts, so if MCTS gave 450 visits to move A and 350 to move B, move A gets picked about 56% of the time, introducing significant randomness.
 
 T = 1.25: the exponent 1/1.25 = 0.8 compresses differences between visit counts, so moves with 450 and 350 visits get closer to equal probability, producing more randomness and more diverse games.
 
@@ -96,6 +96,6 @@ This works because MCTS is a better policy than the raw prior: it takes the netw
 
 After training, the prior is closer to what MCTS would have recommended, so the next MCTS round, using this improved prior, does better search, which produces better training targets, which in turn produces a better prior still. This self-reinforcing loop, in which search improves policy and policy improves search, is how AlphaZero begins at random play and converges on expert-level decisions.
 
-The entropy of the visit distribution is a concrete measure of learning progress. Measured directly on this project's own checkpoints at the opening position, where all 81 cells are legal first moves, the maximum possible entropy is log(81) ≈ 4.39 nats, corresponding to a perfectly uniform policy. By iteration 5, the measured entropy is already close to that ceiling, at roughly 4.0 nats, and by iteration 200 it has fallen to roughly 2.78 nats. Watching policy entropy fall over the course of training, even without ever reaching a fully deterministic policy, is watching the system learn to play.
+The entropy of the visit distribution is a concrete measure of learning progress. Measured directly on this project's own checkpoints at the opening position, where all 81 cells are legal first moves, the maximum possible entropy is log(81) ≈ 4.39 nats, corresponding to a perfectly uniform policy. By iteration 5, the measured entropy is already close to that ceiling, at roughly 4.0 nats, and by iteration 200 it has fallen to roughly 2.78 nats, still well short of a fully deterministic policy.
 
 ![Policy entropy at the opening position across 200 real training iterations: entropy starts near the maximum possible value for 81 legal moves (4.39 nats) and falls to roughly 2.78 nats by iteration 200, with the steepest drop in the first 30 or so iterations.](images/t6_policy_entropy.png)

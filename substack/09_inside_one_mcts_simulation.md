@@ -9,7 +9,7 @@ Last essay was [Teaching an Agent to Play — From Q-Tables to Deep Q-Networks](
 - [From Zero to AlphaZero: The Reinforcement Learning Landscape](https://tthl.substack.com/p/from-zero-to-alphazero-the-reinforcement)
 - [From Zero to AlphaZero: The Explore-Exploit Trade-off — The Bandit Algorithm Behind AlphaZero](https://tthl.substack.com/p/t3-the-slot-machine-problem-where)
 - [From Zero to AlphaZero: PUCT — How AlphaZero Weighs Curiosity, Evidence, and Intuition](https://tthl.substack.com/p/from-zero-to-alphazero-puct-how-alphazero)
-- *From Zero to AlphaZero: What Is a Computational Graph, Really?* (draft)
+- *From Zero to AlphaZero: What Is a Computational Graph, Really?* (link TBD)
 - *From Zero to AlphaZero: How PyTorch Builds a Computational Graph* (draft)
 - *From Zero to AlphaZero: Teaching an Agent to Play — From Q-Tables to Deep Q-Networks* (draft)
 
@@ -17,9 +17,9 @@ Last essay was [Teaching an Agent to Play — From Q-Tables to Deep Q-Networks](
 
 ## The Problem
 
-Fifteen moves into a game of Ultimate Tic-Tac-Toe, with seven legal moves available, one could in principle enumerate every possible continuation. With a branching factor of roughly nine and games lasting thirty to sixty moves, however, searching to depth ten means evaluating 9^10 ≈ 3.5 billion positions, which is not achievable within any real-time budget.
+Fifteen moves into a game of Ultimate Tic-Tac-Toe, with seven legal moves available, we could in principle enumerate every possible continuation. With a branching factor of roughly nine and games lasting thirty to sixty moves, however, searching to depth ten means evaluating 9^10 ≈ 3.5 billion positions, which is not achievable within any real-time budget.
 
-Even if it were, one would still need something to score the leaf positions, and building a reliable heuristic evaluator for Ultimate TTT is genuinely hard: it cannot be hand-crafted from scratch.
+Even if it were, we would still need something to score the leaf positions, and building a reliable heuristic evaluator for Ultimate TTT is genuinely hard: it cannot be hand-crafted from scratch.
 
 The natural response is what a thoughtful human does: spend the available thinking time on the promising moves rather than distributing it evenly, and make a judgment call about a position rather than simulating every game to its end. MCTS formalises this idea.
 
@@ -86,7 +86,7 @@ Try running MCTS with a randomly initialised network, weights set to small rando
 
 With a uniform prior, PUCT degenerates to visiting whichever move has been explored least. After eight hundred simulations over nine legal moves, this produces roughly 89 visits per move, almost uniform, and the training target derived from these visits is also almost uniform. The network learns nothing from a target this flat, so the next MCTS round provides no better signal than the last, a deadlock the system cannot break out of on its own.
 
-After training, even a modest amount, the picture changes markedly. Once the network assigns meaningfully higher probability to some moves than others, MCTS concentrates there: early simulations cluster on the moves the prior favours, and if they prove good, which the value head confirms, visits pile up quickly. Real search data from this project's own checkpoints bears this out, with a wrinkle worth stating honestly: comparing an early checkpoint, iteration 5, against a much later one, iteration 200, at the same opening position shows that visit concentration among the top few moves is already strong by iteration 5 and remains comparably strong at iteration 200, spread a little more broadly across additional plausible alternatives rather than collapsing further onto a single move. The shift from a near-uniform distribution to a peaked one, in other words, happens fast, within the first few iterations of training, rather than gradually across the whole run.
+After training, even a modest amount, the picture changes markedly. Once the network assigns meaningfully higher probability to some moves than others, MCTS concentrates there: early simulations cluster on the moves the prior favours, and if they prove good, which the value head confirms, visits pile up quickly. Real search data from this project's own checkpoints bears this out, with a wrinkle worth stating honestly: comparing an early checkpoint, iteration 5, against a much later one, iteration 200, at the same opening position shows that visit concentration among the top few moves is already strong by iteration 5 and remains comparably strong at iteration 200, spread a little more broadly across additional plausible alternatives rather than collapsing further onto a single move. That shift from near-uniform to peaked happens fast, within the first few iterations of training, rather than gradually across the whole run.
 
 ![MCTS visit distribution at the same opening position from two real checkpoints, 800 simulations each: iteration 5 concentrates visits on only 18 of the legal moves, iteration 200 spreads visits a little further, across 25, while both stay sharply peaked on the same handful of top moves.](images/t5_before_after_training.png)
 
