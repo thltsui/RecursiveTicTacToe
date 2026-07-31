@@ -49,7 +49,9 @@ class TrainingConfig:
     num_vs_random:         int   = 5
     num_vs_best:           int   = 5
     num_simulations:       int   = 800
-    temperature_threshold: int   = 30
+    temp_initial:          float = 2.0
+    temp_decay_rate:       float = 0.94
+    temp_min:              float = 0.15
     dirichlet_alpha:       float = 0.3
     dirichlet_epsilon:     float = 0.35
     dirichlet_epsilon_boost: float = 0.55   # root epsilon for the first dirichlet_boost_plies moves
@@ -235,7 +237,9 @@ def train(config: TrainingConfig) -> None:
                 num_vs_best=config.num_vs_best,
                 best_network=best_net,
                 num_simulations=config.num_simulations,
-                temperature_threshold=config.temperature_threshold,
+                temp_initial=config.temp_initial,
+                temp_decay_rate=config.temp_decay_rate,
+                temp_min=config.temp_min,
                 dirichlet_alpha=config.dirichlet_alpha,
                 dirichlet_epsilon=config.dirichlet_epsilon,
                 dirichlet_epsilon_boost=config.dirichlet_epsilon_boost,

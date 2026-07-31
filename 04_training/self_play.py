@@ -63,7 +63,9 @@ class GameRecord:
 def play_self_play_game(
     network: 'UltimateTTTNetwork',
     num_simulations: int = 800,
-    temperature_threshold: int = 30,
+    temp_initial: float = 2.0,
+    temp_decay_rate: float = 0.94,
+    temp_min: float = 0.15,
     dirichlet_alpha: float = 0.3,
     dirichlet_epsilon: float = 0.35,
     device: str = 'cpu',
@@ -73,9 +75,9 @@ def play_self_play_game(
 ) -> GameRecord:
     """Play one complete self-play game and return the game record.
 
-    Temperature schedule:
-        - Moves 0 to temperature_threshold: temperature = 1.0 (exploration).
-        - Moves after temperature_threshold: temperature = 0.0 (greedy).
+    Temperature schedule (exponential decay):
+        - temp = temp_initial * (temp_decay_rate ** move_count)
+        - If temp < temp_min, temp snaps to 0.0 (greedy endgame).
 
     Root Dirichlet-noise schedule:
         - Moves 0..dirichlet_boost_plies-1 use dirichlet_epsilon_boost.
@@ -103,7 +105,9 @@ def play_self_play_game(
     Args:
         network: Current best network (used for both players).
         num_simulations: MCTS simulations per move.
-        temperature_threshold: Move number after which temperature -> 0.
+        temp_initial: Initial temperature at move 0.
+        temp_decay_rate: Exponential decay multiplier per move.
+        temp_min: Minimum temperature before snapping to 0.0.
         device: Compute device.
         dirichlet_epsilon_boost: Root epsilon used during the early-ply boost window.
         dirichlet_boost_plies: Number of opening plies over which the boost applies.
@@ -152,8 +156,10 @@ def play_self_play_game(
         legal_moves = get_legal_moves(state)
         policy_tgt = compute_policy_target(visits, len(legal_moves))
 
-        # Select move with temperature schedule
-        temp = 1.0 if state.move_count < temperature_threshold else 0.0
+        # Select move with exponential temperature decay
+        temp = temp_initial * (temp_decay_rate ** state.move_count)
+        if temp < temp_min:
+            temp = 0.0
 
         if forced_opening is not None and ply < len(forced_opening):
             move = forced_opening[ply]
@@ -508,7 +514,9 @@ def generate_mixed_batch(
     num_vs_best: int,
     best_network: 'UltimateTTTNetwork',
     num_simulations: int = 800,
-    temperature_threshold: int = 30,
+    temp_initial: float = 2.0,
+    temp_decay_rate: float = 0.94,
+    temp_min: float = 0.15,
     dirichlet_alpha: float = 0.3,
     dirichlet_epsilon: float = 0.35,
     dirichlet_epsilon_boost: float = 0.55,
@@ -569,7 +577,7 @@ def generate_mixed_batch(
         if i < num_forced and forced_opening_pool:
             forced = forced_opening_pool[i % len(forced_opening_pool)]
         records.append(play_self_play_game(
-            network, num_simulations, temperature_threshold,
+            network, num_simulations, temp_initial, temp_decay_rate, temp_min,
             dirichlet_alpha, dirichlet_epsilon, device,
             dirichlet_epsilon_boost=dirichlet_epsilon_boost,
             dirichlet_boost_plies=dirichlet_boost_plies,

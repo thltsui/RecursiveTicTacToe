@@ -35,7 +35,9 @@ def main():
         num_vs_random=5,
         num_vs_best=5,
         num_simulations=200,
-        temperature_threshold=30,  # AlphaZero standard: temp=1 for first 30 moves
+        temp_initial=2.0,
+        temp_decay_rate=0.94,
+        temp_min=0.15,
         dirichlet_alpha=0.3,       # Explicitly set for tuning
         dirichlet_epsilon=0.35,    # Explicitly set for tuning
 
@@ -74,7 +76,7 @@ def main():
         buffer_capacity=200_000,
 
         # Checkpointing — fresh start with pure self-play
-        checkpoint_dir='checkpoints/large_v4_deep_value/',
+        checkpoint_dir='checkpoints/large_v5_exp_temp/',
         checkpoint_every_n=5,
         pretrain_checkpoint=None,  # Start from scratch due to architecture change
         train_device='mps',        # MPS explicitly used for batched training updates
