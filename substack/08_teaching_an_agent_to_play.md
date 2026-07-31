@@ -4,7 +4,7 @@
 
 ---
 
-Last essay was [How PyTorch Builds a Computational Graph](https://tthl.substack.com/p/from-zero-to-alphazero-how-pytorch), a detour into the machinery under the hood. Before that, [The Reinforcement Learning Landscape](https://tthl.substack.com/p/from-zero-to-alphazero-the-reinforcement) laid out the theory this post actually builds on: TD learning, Q-learning, and policy gradients, all without ever touching a board. Here we run that theory against Ultimate Tic-Tac-Toe directly, tabular Q-learning first, since it is the simplest thing that could work, then a neural Q-network once the table falls over. Both hit a ceiling, and where each one breaks down turns out to motivate the rest of this series.
+Last essay was Inside the Network — Convolutions, Batch Norm, and Global Pooling, a detour into the machinery under the hood. Before that, [The Reinforcement Learning Landscape](https://tthl.substack.com/p/from-zero-to-alphazero-the-reinforcement) laid out the theory this post actually builds on: TD learning, Q-learning, and policy gradients, all without ever touching a board. Here we run that theory against Ultimate Tic-Tac-Toe directly, tabular Q-learning first, since it is the simplest thing that could work, then a neural Q-network once the table falls over. Both hit a ceiling, and where each one breaks down turns out to motivate the rest of this series.
 
 **Previous posts in this series:**
 
@@ -14,7 +14,7 @@ Last essay was [How PyTorch Builds a Computational Graph](https://tthl.substack.
 - [From Zero to AlphaZero: The Explore-Exploit Trade-off — The Bandit Algorithm Behind AlphaZero](https://tthl.substack.com/p/t3-the-slot-machine-problem-where)
 - [From Zero to AlphaZero: PUCT — How AlphaZero Weighs Curiosity, Evidence, and Intuition](https://tthl.substack.com/p/from-zero-to-alphazero-puct-how-alphazero)
 - *From Zero to AlphaZero: What Is a Computational Graph, Really?* (link TBD)
-- *From Zero to AlphaZero: How PyTorch Builds a Computational Graph* (draft)
+- *From Zero to AlphaZero: Inside the Network — Convolutions, Batch Norm, and Global Pooling* (draft)
 
 ---
 
