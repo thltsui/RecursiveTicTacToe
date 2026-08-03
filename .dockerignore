@@ -11,6 +11,7 @@
 logs/
 checkpoints/*
 !checkpoints/best_ever_model.pt
+!checkpoints/transformer_best.pt
 !checkpoints/best_model.pt
 !checkpoints/large_v5_fixed_mcts/best_model.pt
 !checkpoints/large_v4_deep_value/best_model.pt
