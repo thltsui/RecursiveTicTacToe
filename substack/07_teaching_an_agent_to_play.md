@@ -35,6 +35,8 @@ The update above already is the loss function from the opening, just applied to 
 
 The implementation is a plain Python dictionary keyed by (state, action), defaulting to zero, updated with exactly the terminal-or-bootstrap rule described above, plus an epsilon-greedy rule that explores at rate ε and otherwise takes the highest-value legal move: [tabular_q/agent.py, lines 13–88](https://github.com/thltsui/RecursiveTicTacToe/blob/8e19888892029b086e01376cfbe0d4f7aaace3e4/experiments/tabular_q/agent.py#L13-L88).
 
+Epsilon-greedy is what keeps this table honest while it learns. Most moves, the agent simply plays whatever the table currently rates highest, the greedy part. On a fraction ε of moves, though, it ignores the table and plays a uniformly random legal move instead. It's the same tension as the [From Zero to AlphaZero: The Explore-Exploit Trade-off — The Bandit Algorithm Behind AlphaZero](https://tthl.substack.com/p/t3-the-slot-machine-problem-where), now applied to a single lookup table rather than a slot machine: without some random moves mixed in, the agent only ever revisits positions its table already favours, and a move that picked up an unlucky Q-value early, before it had really been tested, would never get tried again to find out that estimate was wrong.
+
 ### Training loop
 
 To train, we run self-play games where one agent plays as X and a copy (or a random agent) plays as O. After each move, we compute a reward and update:
@@ -52,6 +54,8 @@ Evaluation plays a fixed number of games against a uniformly random opponent wit
 Training the tabular agent for 5,000 games:
 
 Training runs two such agents against each other for 5,000 games, decaying epsilon from 0.3 down to 0.05 over the run: [tabular_q/train.py, lines 99–152](https://github.com/thltsui/RecursiveTicTacToe/blob/8e19888892029b086e01376cfbe0d4f7aaace3e4/experiments/tabular_q/train.py#L99-L152).
+
+Decaying epsilon from 0.3 to 0.05 over the run shifts that balance as training goes on. Early, when the table barely knows the game, moving randomly on 30% of moves floods it with a wide spread of positions to learn from, including ones the agent would never have picked on its own. By the end, with epsilon down to 5%, the agent mostly plays what the table has already learned to trust, only occasionally still spot-checking whether some path it dismissed early deserves another look.
 
 Typical output:
 ```
