@@ -1,6 +1,6 @@
 # From Zero to AlphaZero: Inside the Network — Convolutions, Batch Norm, and Global Pooling
 
-Last essay, Teaching an Agent to Play, built a plain Q-network, convolutions over the board tensor feeding a fully connected head guessing 81 Q-values, and watched it plateau at 73.5% against random play. The fix carries the same convolutional idea forward but adds two things: residual blocks, so depth does not undermine itself, and a dual head that scores moves and judges the position separately. This post looks at the actual network this project's agent uses: what its layers are, what each one does on its own, and why stacking them this particular way is what makes the whole thing work.
+Last essay, Teaching an Agent to Play Part 2, built a plain Q-network, convolutions over the board tensor feeding a fully connected head guessing 81 Q-values, and watched it plateau at 73.5% against random play. The fix carries the same convolutional idea forward but adds two things: residual blocks, so depth does not undermine itself, and a dual head that scores moves and judges the position separately. This post looks at the actual network this project's agent uses: what its layers are, what each one does on its own, and why stacking them this particular way is what makes the whole thing work.
 
 **Previous posts in this series:**
 
