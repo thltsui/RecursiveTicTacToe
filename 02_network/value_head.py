@@ -64,6 +64,7 @@ class ValueHead(nn.Module):
 
         self.fc1 = nn.Linear(32 * 81, 512)
         self.fc2 = nn.Linear(512, 128)
+        self.ln = nn.LayerNorm(128, elementwise_affine=False)
 
         self.val_out = nn.Linear(128, 1)
         self.score_out = nn.Linear(128, 1)
@@ -83,6 +84,7 @@ class ValueHead(nn.Module):
 
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
+        x = self.ln(x)
 
         win_value = torch.tanh(self.val_out(x))
         score_margin = torch.tanh(self.score_out(x))
