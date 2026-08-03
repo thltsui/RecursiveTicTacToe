@@ -10,7 +10,7 @@ Last essay, Teaching an Agent to Play, built a plain Q-network, convolutions ove
 - [From Zero to AlphaZero: The Explore-Exploit Trade-off — The Bandit Algorithm Behind AlphaZero](https://tthl.substack.com/p/t3-the-slot-machine-problem-where)
 - [From Zero to AlphaZero: PUCT — How AlphaZero Weighs Curiosity, Evidence, and Intuition](https://tthl.substack.com/p/from-zero-to-alphazero-puct-how-alphazero)
 - [From Zero to AlphaZero: What Is a Computational Graph, Really?](https://tthl.substack.com/p/from-zero-to-alphazero-what-is-a)
-- [From Zero to AlphaZero: Teaching an Agent to Play — From Q-Tables to Deep Q-Networks](https://tthl.substack.com/p/from-zero-to-alphazero-teaching-an)
+- *From Zero to AlphaZero: Teaching an Agent to Play — From Q-Tables to Deep Q-Networks* (draft)
 
 ---
 

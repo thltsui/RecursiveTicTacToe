@@ -1,6 +1,6 @@
 # From Zero to AlphaZero: The Full System — Network, MCTS, and Self-Play
 
-Last essay was [Randomness by Design — Temperature, Noise, and the Self-Play Loop](https://tthl.substack.com/p/from-zero-to-alphazero-randomness), which closed out the search side of AlphaZero: MCTS, temperature, and Dirichlet noise, working together as one system. The motivation for building all of it goes back further, to the last practitioner post, [Teaching an Agent to Play — From Q-Tables to Deep Q-Networks](https://tthl.substack.com/p/from-zero-to-alphazero-teaching-an), where a tabular Q-agent (54% vs random) and a DQN (73.5% vs random) both plateaued. We diagnosed three failure modes:
+Last essay was [Randomness by Design — Temperature, Noise, and the Self-Play Loop](https://tthl.substack.com/p/from-zero-to-alphazero-randomness), which closed out the search side of AlphaZero: MCTS, temperature, and Dirichlet noise, working together as one system. The motivation for building all of it goes back further, to the last practitioner post, Teaching an Agent to Play — From Q-Tables to Deep Q-Networks, where a tabular Q-agent (54% vs random) and a DQN (73.5% vs random) both plateaued. We diagnosed three failure modes:
 
 1. **No lookahead**: both agents evaluate positions directly, with no tree search.
 2. **Sparse rewards**: only the final game outcome provides a signal, and intermediate moves get nothing.
