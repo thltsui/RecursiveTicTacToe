@@ -9,6 +9,7 @@ venv/
 # Local checkpoints and logs
 checkpoints/
 !checkpoints/best_ever_model.pt
+!checkpoints/transformer_best.pt
 logs/
 *.pt
 *.txt

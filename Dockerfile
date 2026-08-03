@@ -15,9 +15,12 @@ RUN uv sync --frozen --extra web
 COPY 01_game/ ./01_game/
 COPY 02_network/ ./02_network/
 COPY 03_mcts/ ./03_mcts/
+COPY transformer/ ./transformer/
 COPY web_app/ ./web_app/
 
-# Copy only the best/necessary checkpoints to keep image size small
+# Copy model checkpoints
+# transformer_best.pt is the latest Transformer model; best_ever_model.pt is the legacy CNN fallback
+COPY checkpoints/transformer_best.pt ./checkpoints/
 COPY checkpoints/best_ever_model.pt ./checkpoints/
 
 EXPOSE 5001

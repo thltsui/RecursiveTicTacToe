@@ -29,6 +29,13 @@ from flask_cors import CORS
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from importlib import import_module
 
+# Transformer network support
+try:
+    from transformer.transformer_network import TransformerTTTNetwork
+    _transformer_available = True
+except ImportError:
+    _transformer_available = False
+
 # Configure torch for thread safety and to prevent CPU thrashing
 torch.set_num_threads(1)
 
@@ -123,19 +130,43 @@ def save_room(room_id, room_data):
     else:
         rooms_cache[room_id] = room_data
 
+def _is_transformer_checkpoint(state_dict: dict) -> bool:
+    """Detect if a state dict belongs to a TransformerTTTNetwork.
+
+    Transformer checkpoints have a patch_embed layer and pos_embed tensor
+    rather than an input_conv layer.
+    """
+    return 'pos_embed' in state_dict or any('patch_embed' in k for k in state_dict)
+
+
 def load_network(checkpoint_path=None):
-    """Load the best available network."""
+    """Load the best available network (Transformer or CNN).
+
+    Priority order:
+      1. Explicit checkpoint_path argument.
+      2. checkpoints/transformer_best.pt   (latest Transformer model).
+      3. checkpoints/best_ever_model.pt    (legacy CNN champion).
+      4. Legacy search in known checkpoint dirs.
+      5. Any *.pt under checkpoints/.
+    """
     if checkpoint_path and os.path.exists(checkpoint_path):
         cp_path = checkpoint_path
     else:
         cp_path = None
-        # Always prefer the Git LFS tracked model first
-        best_ever = os.path.join(PROJECT_ROOT, 'checkpoints/best_ever_model.pt')
-        if os.path.exists(best_ever):
-            cp_path = best_ever
-        
+
+        # 1. Prefer Transformer model if available
+        transformer_best = os.path.join(PROJECT_ROOT, 'checkpoints/transformer_best.pt')
+        if _transformer_available and os.path.exists(transformer_best):
+            cp_path = transformer_best
+
+        # 2. Fall back to legacy CNN champion
         if not cp_path:
-            # Fallback legacy search
+            best_ever = os.path.join(PROJECT_ROOT, 'checkpoints/best_ever_model.pt')
+            if os.path.exists(best_ever):
+                cp_path = best_ever
+
+        if not cp_path:
+            # Legacy search in named checkpoint dirs
             search_dirs = [
                 os.path.join(PROJECT_ROOT, 'checkpoints/large_v4_deep_value'),
                 os.path.join(PROJECT_ROOT, 'checkpoints/large_v5_fixed_mcts'),
@@ -163,17 +194,29 @@ def load_network(checkpoint_path=None):
     print(f"Loading checkpoint: {cp_path}")
     checkpoint = torch.load(cp_path, weights_only=False, map_location='cpu')
     state_dict = checkpoint['network_state_dict']
-
-    first_key = [k for k in state_dict if 'input_conv.weight' in k][0]
-    channels = state_dict[first_key].shape[0]
-    num_blocks = sum(1 for k in state_dict if '.conv1.weight' in k and 'trunk' in k)
-
-    net = network_mod.UltimateTTTNetwork(channels=channels, num_blocks=num_blocks)
-    net.load_state_dict(state_dict)
-    net.eval()
-
     iteration = checkpoint.get('iteration', '?')
-    print(f"  Loaded: {channels}ch x {num_blocks}blocks, iteration {iteration}")
+
+    if _transformer_available and _is_transformer_checkpoint(state_dict):
+        # ── Transformer architecture ──────────────────────────────────────
+        # Detect channels from pos_embed shape: (1, 81, channels)
+        channels = state_dict['pos_embed'].shape[-1] if 'pos_embed' in state_dict else 128
+        # Count transformer encoder layers by self_attn projection weights
+        num_blocks = sum(1 for k in state_dict if 'transformer.layers.' in k and k.endswith('.self_attn.in_proj_weight'))
+        num_blocks = num_blocks or 4
+        net = TransformerTTTNetwork(channels=channels, num_blocks=num_blocks)
+        net.load_state_dict(state_dict)
+        net.eval()
+        print(f"  Loaded TRANSFORMER: {channels}ch x {num_blocks}layers, iteration {iteration}")
+    else:
+        # ── Classic CNN (ResNet) architecture ─────────────────────────────
+        conv_keys = [k for k in state_dict if 'input_conv.weight' in k]
+        channels = state_dict[conv_keys[0]].shape[0] if conv_keys else 128
+        num_blocks = sum(1 for k in state_dict if '.conv1.weight' in k and 'trunk' in k)
+        net = network_mod.UltimateTTTNetwork(channels=channels, num_blocks=num_blocks)
+        net.load_state_dict(state_dict)
+        net.eval()
+        print(f"  Loaded CNN: {channels}ch x {num_blocks}blocks, iteration {iteration}")
+
     return net
 
 
