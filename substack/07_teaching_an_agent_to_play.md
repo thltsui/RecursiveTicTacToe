@@ -29,139 +29,27 @@ Here is how a Q-value actually gets learned from played games. Play one to the e
 
 ![How a Q-table target gets built, one game](images/fig07_bellman_backup.png)
 
-```python
-import random
-import numpy as np
-from collections import defaultdict
+The update above already is the loss function from the opening, just applied to the smallest possible model. Treat each table entry Q(s, a) as its own free parameter, and the update is one step of gradient descent on the squared error between that entry and its target: L = (target − Q(s, a))². The gradient of that loss with respect to the one parameter it touches is −2(target − Q(s, a)), so nudging Q(s, a) toward the target by a fraction set by the learning rate is exactly what a gradient step produces. A table entry does not depend on any other parameters, so there is nothing to run the chain rule through. Last essay's machinery becomes necessary once Q(s, a) is computed by a function with layers in between, which is exactly what the network below adds.
 
-class TabularQAgent:
-    def __init__(self, epsilon=0.2, alpha=0.1, gamma=0.99):
-        self.epsilon = epsilon  # exploration rate
-        self.alpha   = alpha    # learning rate
-        self.gamma   = gamma    # discount factor
-        # Q-table: maps (state_key, move_idx) → float
-        # defaultdict initialises unseen entries to 0.0
-        self.q = defaultdict(float)
-
-    def state_key(self, state):
-        """Convert GameState to a hashable key."""
-        return (state.cells.tobytes(),
-                state.sub_board_results.tobytes(),
-                state.active_sub_board)
-
-    def select_action(self, state):
-        legal = get_legal_moves(state)
-        if random.random() < self.epsilon:
-            return random.choice(legal)
-        key = self.state_key(state)
-        # Pick the legal action with the highest Q-value
-        return max(legal, key=lambda m: self.q[(key, m)])
-
-    def update(self, state, move, reward, next_state, done):
-        key      = self.state_key(state)
-        next_key = self.state_key(next_state)
-        current_q = self.q[(key, move)]
-
-        if done:
-            target = reward
-        else:
-            legal_next = get_legal_moves(next_state)
-            if not legal_next:
-                target = reward
-            else:
-                best_next = max(self.q[(next_key, m)] for m in legal_next)
-                target = reward + self.gamma * best_next
-
-        # TD update
-        self.q[(key, move)] += self.alpha * (target - current_q)
-```
+The implementation is a plain Python dictionary keyed by (state, action), defaulting to zero, updated with exactly the terminal-or-bootstrap rule described above, plus an epsilon-greedy rule that explores at rate ε and otherwise takes the highest-value legal move: [tabular_q/agent.py, lines 13–88](https://github.com/thltsui/RecursiveTicTacToe/blob/8e19888892029b086e01376cfbe0d4f7aaace3e4/experiments/tabular_q/agent.py#L13-L88).
 
 ### Training loop
 
 To train, we run self-play games where one agent plays as X and a copy (or a random agent) plays as O. After each move, we compute a reward and update:
 
-```python
-def play_training_game(agent_x, agent_o, reward_win=1.0, reward_loss=-1.0, reward_draw=0.0):
-    """Play one game and update both agents. Returns winner."""
-    state = GameState()
-    # Track (state, move) pairs so we can do the final-outcome update
-    trajectory_x = []
-    trajectory_o = []
-
-    while not state.is_terminal:
-        if state.current_player == 1:   # X's turn
-            move = agent_x.select_action(state)
-            trajectory_x.append((state, move))
-        else:                           # O's turn
-            move = agent_o.select_action(state)
-            trajectory_o.append((state, move))
-        state = apply_move(state, move)
-
-    # Assign terminal rewards
-    if state.winner == 1:
-        rx, ro = reward_win, reward_loss
-    elif state.winner == -1:
-        rx, ro = reward_loss, reward_win
-    else:
-        rx = ro = reward_draw
-
-    # Update X's trajectory (only terminal reward — no bootstrapping at end)
-    for s, m in reversed(trajectory_x):
-        agent_x.update(s, m, rx, state, done=True)
-        rx *= agent_x.gamma  # discount backward through the trajectory
-
-    for s, m in reversed(trajectory_o):
-        agent_o.update(s, m, ro, state, done=True)
-        ro *= agent_o.gamma
-
-    return state.winner
-```
+Each training game runs both players through their own agent, records the (state, move) pairs each one visited, and applies the update to every visited pair in reverse once the game ends: [tabular_q/train.py, lines 40–92](https://github.com/thltsui/RecursiveTicTacToe/blob/8e19888892029b086e01376cfbe0d4f7aaace3e4/experiments/tabular_q/train.py#L40-L92).
 
 ### Evaluation
 
 After training, we measure win rate against a random agent:
 
-```python
-def evaluate_vs_random(agent, n_games=200, play_as=1):
-    """Returns (win_rate, draw_rate, loss_rate)."""
-    wins = draws = losses = 0
-    for seed in range(n_games):
-        random.seed(seed)
-        state = GameState()
-        while not state.is_terminal:
-            if state.current_player == play_as:
-                move = agent.select_action(state)
-            else:
-                move = random.choice(get_legal_moves(state))
-            state = apply_move(state, move)
-        if state.winner == play_as:
-            wins += 1
-        elif state.winner == 0:
-            draws += 1
-        else:
-            losses += 1
-    total = n_games
-    return wins/total, draws/total, losses/total
-```
+Evaluation plays a fixed number of games against a uniformly random opponent with exploration turned off, and reports the win, draw, and loss rate: [tabular_q/evaluate.py, lines 23–61](https://github.com/thltsui/RecursiveTicTacToe/blob/8e19888892029b086e01376cfbe0d4f7aaace3e4/experiments/tabular_q/evaluate.py#L23-L61).
 
 ### Results
 
 Training the tabular agent for 5,000 games:
 
-```python
-agent_x = TabularQAgent(epsilon=0.3, alpha=0.1, gamma=0.99)
-agent_o = TabularQAgent(epsilon=0.3, alpha=0.1, gamma=0.99)
-
-for episode in range(5000):
-    # Decay exploration over time
-    eps = max(0.05, 0.3 * (1 - episode / 5000))
-    agent_x.epsilon = agent_o.epsilon = eps
-    play_training_game(agent_x, agent_o)
-
-print(f"Q-table size: {len(agent_x.q):,} entries")
-wr, dr, lr = evaluate_vs_random(agent_x)
-print(f"Win/Draw/Loss vs random: {wr:.1%} / {dr:.1%} / {lr:.1%}")
-```
+Training runs two such agents against each other for 5,000 games, decaying epsilon from 0.3 down to 0.05 over the run: [tabular_q/train.py, lines 99–152](https://github.com/thltsui/RecursiveTicTacToe/blob/8e19888892029b086e01376cfbe0d4f7aaace3e4/experiments/tabular_q/train.py#L99-L152).
 
 Typical output:
 ```
@@ -169,9 +57,9 @@ Q-table size: 142,847 entries
 Win/Draw/Loss vs random: 54.0% / 7.5% / 38.5%
 ```
 
-Across 5,000 games the agent visits 142,847 (state, move) pairs, a tiny fraction of the full state space, and against a random opponent it manages just 54% wins, barely above the roughly 50% that random play achieves against itself. It has not generalised to unseen positions at all, and it cannot: that is the whole limitation of a lookup table.
+Across 5,000 games the agent visits 142,847 (state, move) pairs, a tiny fraction of the full state space, and against a random opponent it manages just 54% wins, barely above the roughly 50% that random play achieves against itself. It has not generalised to unseen positions at all, which is the whole limitation of a lookup table.
 
-More training does not fix this. The Q-table grows linearly with games played, memory climbs with it, and the win rate plateaus anyway, because every new game keeps landing on new states that share nothing with the ones already visited. Seeing position A tells the table nothing about position B, even when they differ by a single move, and in UTTT almost every position we encounter is one we have never seen before.
+More training does not fix this. The table keeps growing as more games are played, and memory grows with it, but the win rate stays flat, since every new game lands on states that share nothing with the ones already visited. Seeing position A tells the table nothing about position B, even when they differ by a single move, and in UTTT almost every position encountered is one we have never seen before.
 
 ## 2. Neural Q-Learning: Function Approximation
 
@@ -183,30 +71,7 @@ We reuse the 7-channel `encode_state` tensor from [From Zero to AlphaZero: Build
 
 ### The Q-Network
 
-```python
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-
-class QNetwork(nn.Module):
-    def __init__(self):
-        super().__init__()
-        # 3 conv layers over the (7, 9, 9) input
-        self.conv = nn.Sequential(
-            nn.Conv2d(7,  32, kernel_size=3, padding=1), nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=3, padding=1), nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, padding=1), nn.ReLU(),
-        )
-        # Fully connected head: 64*9*9 = 5184 → 256 → 81
-        self.fc = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(64 * 9 * 9, 256), nn.ReLU(),
-            nn.Linear(256, 81),
-        )
-
-    def forward(self, x):
-        return self.fc(self.conv(x))
-```
+The network is three convolutional layers over the (7, 9, 9) board tensor, flattened into a two-layer fully connected head producing 81 Q-values: [dqn/model.py, lines 12–58](https://github.com/thltsui/RecursiveTicTacToe/blob/8e19888892029b086e01376cfbe0d4f7aaace3e4/experiments/dqn/model.py#L12-L58).
 
 Convolutions are a natural fit here because the board has real spatial structure: the 3×3 arrangement of sub-boards and the 3×3 cells within each sub-board both matter, and a convolutional filter can pick up a local pattern, a row inside a sub-board, a diagonal, no matter where on the 9×9 grid it happens to sit.
 
@@ -216,154 +81,13 @@ Neural Q-learning (DQN) adds two ingredients on top of plain Q-learning: an **ex
 
 Training the network means giving it something to predict, the same idea as the table above, with a differentiable function standing in for the lookup. For each transition sampled from the replay buffer, the target is the reward received plus the discounted best Q-value the target network assigns to the next state: target = r + γ · max Q_target(s′, a′). The loss is the mean squared error between the network's own Q(s, a) for the action actually taken and that target, a number built entirely from tensors the network produced itself. Calling .backward() on that loss walks it back through the fully connected head and the convolutional layers, and gradient descent nudges every weight so the Q-value estimate moves a little closer to the target.
 
-![DQN architecture: board state through two hidden convolutional layers to a Q-value output layer and an argmax move selection, with a replay buffer sampling mini-batches for training.](images/diagram_dqn_architecture.png)
+![DQN architecture](images/fig07_dqn_architecture.png)
 
-```python
-from collections import deque
-
-class ReplayBuffer:
-    def __init__(self, capacity=50_000):
-        self.buffer = deque(maxlen=capacity)
-
-    def push(self, state_tensor, move, reward, next_tensor, done, legal_mask):
-        self.buffer.append((state_tensor, move, reward, next_tensor, done, legal_mask))
-
-    def sample(self, batch_size):
-        batch = random.sample(self.buffer, batch_size)
-        states, moves, rewards, nexts, dones, masks = zip(*batch)
-        return (torch.stack(states),
-                torch.tensor(moves,   dtype=torch.long),
-                torch.tensor(rewards, dtype=torch.float32),
-                torch.stack(nexts),
-                torch.tensor(dones,   dtype=torch.float32),
-                torch.stack(masks))
-
-    def __len__(self):
-        return len(self.buffer)
-
-
-class DQNAgent:
-    def __init__(self, lr=1e-3, gamma=0.99, epsilon=0.5,
-                 batch_size=256, target_update_freq=500):
-        self.online_net  = QNetwork()
-        self.target_net  = QNetwork()
-        self.target_net.load_state_dict(self.online_net.state_dict())
-        self.target_net.eval()
-
-        self.optimizer   = torch.optim.Adam(self.online_net.parameters(), lr=lr)
-        self.buffer      = ReplayBuffer()
-        self.gamma       = gamma
-        self.epsilon     = epsilon
-        self.batch_size  = batch_size
-        self.target_update_freq = target_update_freq
-        self.steps       = 0
-
-    @torch.no_grad()
-    def select_action(self, state):
-        legal = get_legal_moves(state)
-        if random.random() < self.epsilon:
-            return random.choice(legal)
-        # Convert state to tensor
-        s = torch.tensor(encode_state(state)).unsqueeze(0)  # (1, 7, 9, 9)
-        q_vals = self.online_net(s).squeeze(0)  # (81,)
-        # Mask illegal moves to -inf before argmax
-        mask = torch.tensor(get_legal_move_mask(state))
-        q_vals = q_vals.masked_fill(mask == 0, float('-inf'))
-        return int(q_vals.argmax())
-
-    def store(self, state, move, reward, next_state, done):
-        s  = torch.tensor(encode_state(state))
-        ns = torch.tensor(encode_state(next_state))
-        mask = torch.tensor(get_legal_move_mask(next_state))
-        self.buffer.push(s, move, reward, ns, done, mask)
-
-    def train_step(self):
-        if len(self.buffer) < self.batch_size:
-            return None
-
-        states, moves, rewards, nexts, dones, masks = self.buffer.sample(self.batch_size)
-
-        # Current Q-values for the actions taken
-        q_current = self.online_net(states).gather(1, moves.unsqueeze(1)).squeeze(1)
-
-        # Target Q-values (using target network)
-        with torch.no_grad():
-            q_next = self.target_net(nexts)
-            q_next = q_next.masked_fill(masks == 0, float('-inf'))
-            q_next_max = q_next.max(dim=1).values
-            q_next_max[q_next_max == float('-inf')] = 0.0  # terminal states
-            targets = rewards + self.gamma * q_next_max * (1 - dones)
-
-        loss = F.mse_loss(q_current, targets)
-        self.optimizer.zero_grad()
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.online_net.parameters(), 1.0)
-        self.optimizer.step()
-
-        self.steps += 1
-        if self.steps % self.target_update_freq == 0:
-            self.target_net.load_state_dict(self.online_net.state_dict())
-
-        return loss.item()
-```
+The buffer stores past transitions and samples a random batch each step: [lines 34–74](https://github.com/thltsui/RecursiveTicTacToe/blob/8e19888892029b086e01376cfbe0d4f7aaace3e4/experiments/dqn/agent.py#L34-L74). Action selection is epsilon-greedy over the online network's own Q-values, masked to legal moves: [lines 123–135](https://github.com/thltsui/RecursiveTicTacToe/blob/8e19888892029b086e01376cfbe0d4f7aaace3e4/experiments/dqn/agent.py#L123-L135). And the training step itself, computing the TD target off the target network, the mean squared error against it, and the gradient step, is the mechanism described above: [lines 152–182](https://github.com/thltsui/RecursiveTicTacToe/blob/8e19888892029b086e01376cfbe0d4f7aaace3e4/experiments/dqn/agent.py#L152-L182).
 
 ### Training Loop
 
-```python
-def train_dqn(agent, n_episodes=20_000, eval_every=1000):
-    results = []
-
-    for episode in range(n_episodes):
-        # Decay epsilon from 0.5 to 0.05
-        agent.epsilon = max(0.05, 0.5 - 0.45 * (episode / n_episodes))
-
-        state = GameState()
-        while not state.is_terminal:
-            move = agent.select_action(state)
-            prev_state = state
-            state = apply_move(state, move)
-
-            # Intermediate reward: 0.0 (only terminal states carry signal)
-            # Give a small shaping reward for winning a sub-board
-            intermediate = 0.0
-            sb_won = state.sub_board_results[decode_move(move)[0]]
-            if sb_won == prev_state.current_player:
-                intermediate = 0.05
-
-            done = state.is_terminal
-            if done:
-                reward = 1.0 if state.winner == prev_state.current_player else \
-                        -1.0 if state.winner == -prev_state.current_player else 0.0
-            else:
-                reward = intermediate
-
-            # The opponent also plays; from the agent's perspective that is
-            # an environment transition, not a separate agent step.
-            # We store the agent's own transitions only.
-            agent.store(prev_state, move, reward, state, done)
-            agent.train_step()
-
-            # Opponent plays a random move (we train as both X and O)
-            if not state.is_terminal:
-                opp_move = random.choice(get_legal_moves(state))
-                prev_opp = state
-                state = apply_move(state, opp_move)
-                # Store opponent transition from opponent's perspective
-                done = state.is_terminal
-                opp_reward = 1.0 if state.winner == prev_opp.current_player else \
-                             -1.0 if state.winner != 0 else 0.0
-                agent.store(prev_opp, opp_move, opp_reward, state, done)
-                agent.train_step()
-
-        if (episode + 1) % eval_every == 0:
-            agent.epsilon = 0.0   # greedy eval
-            wr, dr, lr = evaluate_vs_random(agent, n_games=200)
-            agent.epsilon = max(0.05, 0.5 - 0.45 * (episode / n_episodes))
-            results.append((episode + 1, wr, dr, lr))
-            print(f"Ep {episode+1:6d} | W {wr:.1%}  D {dr:.1%}  L {lr:.1%}")
-
-    return results
-```
+Training plays the agent against itself and a random opponent within the same loop, storing a transition and calling the training step after every move: [dqn/train.py, lines 41–82](https://github.com/thltsui/RecursiveTicTacToe/blob/8e19888892029b086e01376cfbe0d4f7aaace3e4/experiments/dqn/train.py#L41-L82). The outer loop wraps this across 20,000 episodes with the same kind of epsilon decay and periodic evaluation as the tabular case: [lines 89–160](https://github.com/thltsui/RecursiveTicTacToe/blob/8e19888892029b086e01376cfbe0d4f7aaace3e4/experiments/dqn/train.py#L89-L160).
 
 ### Results and the Ceiling
 
