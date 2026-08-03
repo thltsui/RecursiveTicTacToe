@@ -9,7 +9,7 @@ In Part 1, we built a Q-table for Ultimate Tic-Tac-Toe and watched it hit a wall
 - [From Zero to AlphaZero: The Reinforcement Learning Landscape](https://tthl.substack.com/p/from-zero-to-alphazero-the-reinforcement)
 - [From Zero to AlphaZero: The Explore-Exploit Trade-off — The Bandit Algorithm Behind AlphaZero](https://tthl.substack.com/p/t3-the-slot-machine-problem-where)
 - [From Zero to AlphaZero: PUCT — How AlphaZero Weighs Curiosity, Evidence, and Intuition](https://tthl.substack.com/p/from-zero-to-alphazero-puct-how-alphazero)
-- *From Zero to AlphaZero: What Is a Computational Graph, Really?* (link TBD)
+- [From Zero to AlphaZero: What Is a Computational Graph, Really?](https://tthl.substack.com/p/from-zero-to-alphazero-what-is-a)
 - [From Zero to AlphaZero: Teaching an Agent to Play, Part 1 — Tabular Q-Learning](https://tthl.substack.com/p/from-zero-to-alphazero-teaching-an)
 
 ---

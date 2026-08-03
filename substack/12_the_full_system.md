@@ -17,12 +17,12 @@ Everything here is code from `02_network/`, `03_mcts/`, `04_training/`.
 - [From Zero to AlphaZero: The Reinforcement Learning Landscape](https://tthl.substack.com/p/from-zero-to-alphazero-the-reinforcement)
 - [From Zero to AlphaZero: The Explore-Exploit Trade-off — The Bandit Algorithm Behind AlphaZero](https://tthl.substack.com/p/t3-the-slot-machine-problem-where)
 - [From Zero to AlphaZero: PUCT — How AlphaZero Weighs Curiosity, Evidence, and Intuition](https://tthl.substack.com/p/from-zero-to-alphazero-puct-how-alphazero)
-- *From Zero to AlphaZero: What Is a Computational Graph, Really?* (link TBD)
+- [From Zero to AlphaZero: What Is a Computational Graph, Really?](https://tthl.substack.com/p/from-zero-to-alphazero-what-is-a)
 - [From Zero to AlphaZero: Teaching an Agent to Play, Part 1 — Tabular Q-Learning](https://tthl.substack.com/p/from-zero-to-alphazero-teaching-an)
 - [From Zero to AlphaZero: Teaching an Agent to Play, Part 2 — Deep Q-Learning](https://tthl.substack.com/p/from-zero-to-alphazero-teaching-an-037)
-- *From Zero to AlphaZero: Inside the Network — Convolutions, Batch Norm, and Global Pooling* (draft)
-- *From Zero to AlphaZero: Inside One MCTS Simulation — How AlphaZero Thinks Move by Move* (draft)
-- *From Zero to AlphaZero: Randomness by Design — Temperature, Noise, and the Self-Play Loop* (draft)
+- [From Zero to AlphaZero: Inside the Network — Convolutions, Batch Norm, and Global Pooling](https://tthl.substack.com/p/from-zero-to-alphazero-inside-the)
+- [From Zero to AlphaZero: Inside One MCTS Simulation — How AlphaZero Thinks Move by Move](https://tthl.substack.com/p/from-zero-to-alphazero-inside-one)
+- [From Zero to AlphaZero: Randomness by Design — Temperature, Noise, and the Self-Play Loop](https://tthl.substack.com/p/from-zero-to-alphazero-randomness)
 
 ---
 
