@@ -69,4 +69,4 @@ The 54% win rate against random play suggests marginal improvement after trainin
 
 ---
 
-*Part 2, [Teaching an Agent to Play, Part 2: Deep Q-Learning](link TBD), picks up where the table breaks down and swaps it for a neural network.*
+*Part 2, [Teaching an Agent to Play, Part 2: Deep Q-Learning](https://tthl.substack.com/p/from-zero-to-alphazero-teaching-an-037), picks up where the table breaks down and swaps it for a neural network.*
