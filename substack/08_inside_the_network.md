@@ -1,6 +1,6 @@
 # From Zero to AlphaZero: Inside the Network — Convolutions, Batch Norm, and Global Pooling
 
-Last time, in *What Is a Computational Graph, Really?*, we looked at the general machinery PyTorch uses to compute gradients, using a tiny one-parameter toy model. This time we leave that machinery behind and look at the actual network this project's agent uses to judge Ultimate Tic-Tac-Toe positions: what its layers are, what each one does on its own, and why stacking them this particular way is what makes the whole thing work.
+Last essay, Teaching an Agent to Play, built a plain Q-network, convolutions over the board tensor feeding a fully connected head guessing 81 Q-values, and watched it plateau at 73.5% against random play. The fix carries the same convolutional idea forward but adds two things: residual blocks, so depth does not undermine itself, and a dual head that scores moves and judges the position separately. This post looks at the actual network this project's agent uses: what its layers are, what each one does on its own, and why stacking them this particular way is what makes the whole thing work.
 
 **Previous posts in this series:**
 
@@ -10,6 +10,7 @@ Last time, in *What Is a Computational Graph, Really?*, we looked at the general
 - [From Zero to AlphaZero: The Explore-Exploit Trade-off — The Bandit Algorithm Behind AlphaZero](https://tthl.substack.com/p/t3-the-slot-machine-problem-where)
 - [From Zero to AlphaZero: PUCT — How AlphaZero Weighs Curiosity, Evidence, and Intuition](https://tthl.substack.com/p/from-zero-to-alphazero-puct-how-alphazero)
 - [From Zero to AlphaZero: What Is a Computational Graph, Really?](https://tthl.substack.com/p/from-zero-to-alphazero-what-is-a)
+- [From Zero to AlphaZero: Teaching an Agent to Play — From Q-Tables to Deep Q-Networks](https://tthl.substack.com/p/from-zero-to-alphazero-teaching-an)
 
 ---
 

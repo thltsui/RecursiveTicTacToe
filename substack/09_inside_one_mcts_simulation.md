@@ -1,6 +1,6 @@
 # From Zero to AlphaZero: Inside One MCTS Simulation — How AlphaZero Thinks Move by Move
 
-Last essay was [Teaching an Agent to Play — From Q-Tables to Deep Q-Networks](https://tthl.substack.com/p/from-zero-to-alphazero-teaching-an), which found the ceiling of a network working alone: no lookahead, sparse rewards, a single weak opponent to train against. The fix for the first of those is [PUCT — How AlphaZero Weighs Curiosity, Evidence, and Intuition](https://tthl.substack.com/p/from-zero-to-alphazero-puct-how-alphazero), the formula that governs how AlphaZero explores a game tree. This essay shows the full loop: how MCTS actually builds a search tree, one simulation at a time, and why the result is a move selection strategy that is strictly better than the network's raw output.
+Last essay, Inside the Network — Convolutions, Batch Norm, and Global Pooling, built the actual network this project's agent uses: residual blocks, global pooling, and a dual head producing a policy and a value estimate. On its own that network still cannot look ahead, one of the ceilings [Teaching an Agent to Play](https://tthl.substack.com/p/from-zero-to-alphazero-teaching-an) ran into. The fix is [PUCT — How AlphaZero Weighs Curiosity, Evidence, and Intuition](https://tthl.substack.com/p/from-zero-to-alphazero-puct-how-alphazero), the formula that governs how AlphaZero explores a game tree. This essay shows the full loop: how MCTS actually builds a search tree, one simulation at a time, guided by PUCT, and why the result is a move selection strategy that is strictly better than the network's raw output.
 
 **Previous posts in this series:**
 
@@ -10,8 +10,8 @@ Last essay was [Teaching an Agent to Play — From Q-Tables to Deep Q-Networks](
 - [From Zero to AlphaZero: The Explore-Exploit Trade-off — The Bandit Algorithm Behind AlphaZero](https://tthl.substack.com/p/t3-the-slot-machine-problem-where)
 - [From Zero to AlphaZero: PUCT — How AlphaZero Weighs Curiosity, Evidence, and Intuition](https://tthl.substack.com/p/from-zero-to-alphazero-puct-how-alphazero)
 - *From Zero to AlphaZero: What Is a Computational Graph, Really?* (link TBD)
-- *From Zero to AlphaZero: Inside the Network — Convolutions, Batch Norm, and Global Pooling* (draft)
 - *From Zero to AlphaZero: Teaching an Agent to Play — From Q-Tables to Deep Q-Networks* (draft)
+- *From Zero to AlphaZero: Inside the Network — Convolutions, Batch Norm, and Global Pooling* (draft)
 
 ---
 
