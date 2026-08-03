@@ -29,6 +29,8 @@ Here is how a Q-value actually gets learned from played games. Play one to the e
 
 ![How a Q-table target gets built, one game](images/fig07_bellman_backup.png)
 
+Concretely: for every move except the last one in a game, reward is 0, unless that particular move happens to win a sub-board, in which case it gets a small shaping bonus of 0.02, added mainly to give some signal before the game ends. Only the final move of the game gets the real outcome as its reward: +1 for a win, −1 for a loss, 0 for a draw, plus that same sub-board bonus if the winning move happened to capture one. That final-move reward is the only place a literal game outcome enters the table directly; everywhere else, the target is built from the table's own current guess.
+
 The update above already is the loss function from the opening, just applied to the smallest possible model. Treat each table entry Q(s, a) as its own free parameter, and the update is one step of gradient descent on the squared error between that entry and its target: L = (target − Q(s, a))². The gradient of that loss with respect to the one parameter it touches is −2(target − Q(s, a)), so nudging Q(s, a) toward the target by a fraction set by the learning rate is exactly what a gradient step produces. A table entry does not depend on any other parameters, so there is nothing to run the chain rule through. Last essay's machinery becomes necessary once Q(s, a) is computed by a function with layers in between, which is exactly what the network below adds.
 
 The implementation is a plain Python dictionary keyed by (state, action), defaulting to zero, updated with exactly the terminal-or-bootstrap rule described above, plus an epsilon-greedy rule that explores at rate ε and otherwise takes the highest-value legal move: [tabular_q/agent.py, lines 13–88](https://github.com/thltsui/RecursiveTicTacToe/blob/8e19888892029b086e01376cfbe0d4f7aaace3e4/experiments/tabular_q/agent.py#L13-L88).
@@ -59,13 +61,13 @@ Win/Draw/Loss vs random: 54.0% / 7.5% / 38.5%
 
 Across 5,000 games the agent visits 142,847 (state, move) pairs, a tiny fraction of the full state space, and against a random opponent it manages just 54% wins, barely above the roughly 50% that random play achieves against itself. It has not generalised to unseen positions at all, which is the whole limitation of a lookup table.
 
-More training does not fix this. The table keeps growing as more games are played, and memory grows with it, but the win rate stays flat, since every new game lands on states that share nothing with the ones already visited. Seeing position A tells the table nothing about position B, even when they differ by a single move, and in UTTT almost every position encountered is one we have never seen before.
+The 54% win rate against random play suggests marginal improvement after training on 5,000 games, so the natural question is whether more training can get us to really good gameplay eventually. We can reliably infer that it is unlikely. First, the table keeps growing as more games are played, and memory usage grows with it. At some point, storing every possible transition becomes infeasible. Second, because of how numerous the possible game states are, every new game, with very high probability, lands on states that share nothing with the ones already visited. Given that the Q-table is completely state-dependent, seeing position A tells the table nothing about position B, even when they differ by a single move, so the win rate is most likely to grow at most linearly with the amount of training. This is akin to a student who memorises every game they have played, move by move, but never extracts any wisdom about which states are good and which moves are good. What we actually want is a student who can compare a new position against similar positions they have seen before, and extrapolate what the best move probably is. That is the motivation behind neural Q-learning.
 
 ## 2. Neural Q-Learning: Function Approximation
 
 The fix is to swap the table for a neural network that maps board states to Q-values. Networks generalise where tables cannot: positions that look similar as tensors get similar Q-value estimates, even ones the network has never seen.
 
-![Tabular Q-learning versus a Q-network: a lookup table that requires an exact state match, compared to a neural network with shared weights that generalises to unseen states.](images/diagram_qtable_vs_qnetwork.png)
+![Tabular Q-learning versus a Q-network](images/fig07_qtable_vs_qnetwork.png)
 
 We reuse the 7-channel `encode_state` tensor from [From Zero to AlphaZero: Building the Ultimate Tic-Tac-Toe Engine in Python](https://tthl.substack.com/p/building-the-ultimate-tic-tac-toe) as input, and the network outputs 81 Q-values, one per possible move.
 
