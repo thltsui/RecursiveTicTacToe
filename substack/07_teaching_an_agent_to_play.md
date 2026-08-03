@@ -4,7 +4,7 @@
 
 ---
 
-Last essay, [What Is a Computational Graph, Really?](https://tthl.substack.com/p/from-zero-to-alphazero-what-is-a), covered the general machinery PyTorch uses to compute gradients. [The Reinforcement Learning Landscape](https://tthl.substack.com/p/from-zero-to-alphazero-the-reinforcement) laid out the theory this post actually builds on: TD learning, Q-learning, and policy gradients, all without ever touching a board. Here we run that theory against Ultimate Tic-Tac-Toe directly, tabular Q-learning first, since it is the simplest thing that could work, then a neural Q-network once the table falls over. Both hit a ceiling, and where each one breaks down turns out to motivate the rest of this series.
+In our last essay, [What Is a Computational Graph, Really?](https://tthl.substack.com/p/from-zero-to-alphazero-what-is-a), we introduced PyTorch and explained how it builds a computational graph to fine-tune the parameters of a function through gradient descent on a specified loss function. With that setting the scene, we now want to address a more fundamental question: what is the loss function for evaluating a good Ultimate Tic-Tac-Toe move? This is a highly ambiguous question, because there are so many possible game states in Ultimate Tic-Tac-Toe that we cannot hand-craft a loss function for every one of them. We need a mechanism that assigns a loss to any game state, or at least to every game state our training ever covers. To find one, recall that our earlier essay on [the reinforcement learning landscape](https://tthl.substack.com/p/from-zero-to-alphazero-the-reinforcement) covered the mathematical framework behind Q-learning. Let's revisit that framework now and see how it works in practice.
 
 **Previous posts in this series:**
 
@@ -19,11 +19,15 @@ Last essay, [What Is a Computational Graph, Really?](https://tthl.substack.com/p
 
 ## 1. Tabular Q-Learning: The State-Space Problem
 
-Q-learning maintains a table mapping each (state, action) pair to an expected future reward. On a small problem, a 4×4 grid world, a simple maze, that table stays finite and manageable, and the approach works well.
+Q-learning maintains a table mapping each (state, action) pair to its Q-value, the expected total future reward if that action is taken and play continues optimally afterward. On small problems, such as a 4×4 grid world or a simple maze, this works well, since the table remains finite and manageable.
 
 UTTT is a different scale entirely. The state space runs to roughly 3^81 ≈ 4.4 × 10^38 distinct board configurations, and a Q-table with one float per entry, even if we could find somewhere to put it, would need more storage than exists on Earth.
 
 We can still run tabular Q-learning anyway, just to see how far it gets, knowing in advance it will only ever learn from positions it has actually visited and generalise to nothing else.
+
+Here is how a Q-value actually gets learned from played games. Play one to the end, and the last move has a target we know exactly: the actual outcome, since nothing happens after it. Every earlier move does not have that luxury at the moment it needs an update, so it bootstraps instead: the target is whatever reward that move earned, usually zero since Ultimate Tic-Tac-Toe is decided only at the end, plus the table's own current best guess for the position that move led to. The code below replays each game in reverse, last move first, so the guess it bootstraps from is often freshly updated within the same game: the table already knows the finishing move's value by the time it computes the target for the move before it. Each update only nudges the table a fraction of the way toward its target, the learning rate decides how much, so an early move's value only becomes trustworthy after many games happen to revisit the same or a similar position. In a state space of 3^81 possible boards, almost no position gets visited twice.
+
+![How a Q-table target gets built, one game](images/fig07_bellman_backup.png)
 
 ```python
 import random
@@ -210,6 +214,8 @@ Convolutions are a natural fit here because the board has real spatial structure
 
 Neural Q-learning (DQN) adds two ingredients on top of plain Q-learning: an **experience replay buffer** that stores past transitions and samples from them randomly, and a **target network** that gives training stable Q-value targets to aim at.
 
+Training the network means giving it something to predict, the same idea as the table above, with a differentiable function standing in for the lookup. For each transition sampled from the replay buffer, the target is the reward received plus the discounted best Q-value the target network assigns to the next state: target = r + γ · max Q_target(s′, a′). The loss is the mean squared error between the network's own Q(s, a) for the action actually taken and that target, a number built entirely from tensors the network produced itself. Calling .backward() on that loss walks it back through the fully connected head and the convolutional layers, and gradient descent nudges every weight so the Q-value estimate moves a little closer to the target.
+
 ![DQN architecture: board state through two hidden convolutional layers to a Q-value output layer and an argmax move selection, with a replay buffer sampling mini-batches for training.](images/diagram_dqn_architecture.png)
 
 ```python
@@ -378,7 +384,7 @@ Progress is real, but slow, and the curve flattens out for several reasons that 
 
 **Single-opponent training.** Training against a random opponent caps how good the agent ever needs to get: it learns to punish random mistakes and never learns to handle an opponent that plays well.
 
-**Bootstrapping instability.** TD updates bootstrap off the target network, which is really just a slightly older copy of the online network, and in a large action space with sparse rewards that produces noisy, unstable Q-value estimates.
+**Bootstrapping instability.** Each update nudges an estimate toward another estimate, and in a large, sparse-reward space that chain is noisy and slow to settle.
 
 ## 3. What Would Fix This
 
