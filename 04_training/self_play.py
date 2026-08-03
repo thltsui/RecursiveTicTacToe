@@ -365,9 +365,21 @@ def play_vs_random_game(
             )
             move_records.append(record)
         else:
-            # Random player's turn — play randomly but DON'T record
+            # Random player's turn — play randomly and record for the Value Head,
+            # but zero out the policy target and legal mask so the Policy Head ignores it.
             legal_moves = get_legal_moves(state)
             move = random.choice(legal_moves)
+            
+            legal_mask = get_legal_move_mask(state)
+            record = MoveRecord(
+                state_tensor=encode_state(state),
+                policy_target=torch.zeros(81),      # Ignore policy
+                opp_policy_target=torch.zeros(81),  
+                opp_legal_mask=torch.zeros(81),     
+                legal_mask=torch.zeros(81),         # Zero mask to ignore in policy loss
+                current_player=state.current_player,
+            )
+            move_records.append(record)
 
         # Apply move
         rules = import_module('01_game.rules')

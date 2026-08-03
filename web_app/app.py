@@ -62,7 +62,7 @@ socketio = SocketIO(app, cors_allowed_origins="*", message_queue=redis_url)
 
 network = None
 # Number of MCTS simulations based on difficulty
-DIFFICULTY_SIMS = {'easy': 100, 'medium': 300, 'hard': 500}
+DIFFICULTY_SIMS = {'easy': 500, 'medium': 1000, 'hard': 2000}
 
 def c_puct_for_phase(move_count: int) -> float:
     """Exploration boost at both ends of the game -- helps PUCT surface
@@ -304,7 +304,7 @@ def new_game():
     """Start a new game. Optionally set difficulty."""
     data = request.get_json(silent=True) or {}
     difficulty = data.get('difficulty', 'medium')
-    sims = DIFFICULTY_SIMS.get(difficulty, 100)
+    sims = DIFFICULTY_SIMS.get(difficulty, 1000)
 
     human_player = data.get('human_player', 1)  # 1 = human goes first
     state = create_initial_state()
@@ -330,7 +330,7 @@ def human_move():
     state = dict_to_state(data['state'])
     move = int(data['move'])
     difficulty = data.get('difficulty', 'medium')
-    sims = DIFFICULTY_SIMS.get(difficulty, 100)
+    sims = DIFFICULTY_SIMS.get(difficulty, 1000)
 
     # Validate move
     legal = get_legal_moves(state)
@@ -354,7 +354,7 @@ def analyze_position():
     data = request.get_json()
     state = dict_to_state(data['state'])
     difficulty = data.get('difficulty', 'medium')
-    sims = DIFFICULTY_SIMS.get(difficulty, 100)
+    sims = DIFFICULTY_SIMS.get(difficulty, 1000)
 
     if state.is_terminal:
         return jsonify({'error': 'Cannot analyze terminal position'}), 400

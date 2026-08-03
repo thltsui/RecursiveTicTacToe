@@ -48,12 +48,12 @@ class TrainingConfig:
     num_self_play:         int   = 10
     num_vs_random:         int   = 5
     num_vs_best:           int   = 5
-    num_simulations:       int   = 800
+    num_simulations:       int   = 1200
     temp_initial:          float = 2.0
-    temp_decay_rate:       float = 0.94
-    temp_min:              float = 0.15
-    dirichlet_alpha:       float = 0.3
-    dirichlet_epsilon:     float = 0.35
+    temp_decay_rate:       float = 0.98
+    temp_min:              float = 0.25
+    dirichlet_alpha:       float = 0.5
+    dirichlet_epsilon:     float = 0.45
     dirichlet_epsilon_boost: float = 0.55   # root epsilon for the first dirichlet_boost_plies moves
     dirichlet_boost_plies: int   = 5        # 0 disables boosting (flat dirichlet_epsilon)
     forced_opening_fraction: float = 0.0    # fraction of self-play games forced through forced_opening_pool

@@ -51,9 +51,9 @@ BG_BLUE = '\033[44m'
 BG_GREEN = '\033[42m'
 
 DIFFICULTY_SIMS = {
-    'easy': 25,
-    'medium': 100,
-    'hard': 400,
+    'easy': 500,
+    'medium': 1000,
+    'hard': 2000,
 }
 
 # ── Numpad mapping ───────────────────────────────────────────────────────────
