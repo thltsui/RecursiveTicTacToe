@@ -537,80 +537,245 @@ def generate_mixed_batch(
     forced_opening_pool: 'list[list[int]] | None' = None,
     device: str = 'cpu',
 ) -> list[GameRecord]:
-    """Generate a mixed batch of self-play data.
+    """Generate a mixed batch of self-play data using a Vectorized Batched MCTS engine."""
+    import random
+    from importlib import import_module
+    from tqdm import tqdm
+    
+    board_mod = import_module('01_game.board')
+    rules_mod = import_module('01_game.rules')
+    search_mod = import_module('03_mcts.search')
+    policy_target_mod = import_module('03_mcts.policy_target')
+    
+    create_initial_state = board_mod.create_initial_state
+    encode_state = board_mod.encode_state
+    get_legal_moves = rules_mod.get_legal_moves
+    get_legal_move_mask = rules_mod.get_legal_move_mask
+    run_mcts_batched = search_mod.run_mcts_batched
+    select_move = search_mod.select_move
+    epsilon_for_ply = search_mod.epsilon_for_ply
+    compute_policy_target = policy_target_mod.compute_policy_target
 
-    Mix of pure self-play, vs random opponent, and vs best checkpoint.
-
-    Forced opening diversity: instead of relying only on Dirichlet noise and
-    temperature to naturally produce diverse openings, a configurable fraction
-    of the pure self-play games are made to start from a pre-selected opening
-    move, cycling round-robin through forced_opening_pool. This guarantees the
-    network accumulates training data on those lines regardless of how skewed
-    its own search priors have become for them -- a line no longer needs to
-    "win" the search to get played and recorded. Only applied to pure
-    self-play games (not vs-random/vs-best), so the mix still contains plenty
-    of freely-chosen openings.
-
-    Args:
-        network: Current network.
-        num_self_play: Number of pure self-play games.
-        num_vs_random: Number of games vs random opponent.
-        num_vs_best: Number of games vs best opponent.
-        best_network: The best network checkpoint (if available).
-        num_simulations: MCTS simulations per move.
-        dirichlet_epsilon_boost: Root epsilon during the early-ply boost window
-            (see epsilon_for_ply() in 03_mcts/search.py).
-        dirichlet_boost_plies: Number of opening plies the boost applies to.
-            Set to 0 to disable and use flat dirichlet_epsilon throughout.
-        forced_opening_fraction: Fraction (0.0-1.0) of num_self_play games per
-            call that are forced to start from an opening in forced_opening_pool
-            instead of letting MCTS choose freely. 0.0 = disabled (default).
-        forced_opening_pool: List of forced-opening move-index lists to cycle
-            through round-robin. Defaults to the 9 cells of the center
-            sub-board (sub-board index 4) -- i.e. encode_move(4, 0..8) -- which
-            covers the center-center opening plus its 8 neighbors, the exact
-            line found to be almost never chosen by MCTS's own search.
-        device: Compute device.
-
-    Returns:
-        List of GameRecord objects (shuffled).
-    """
     if forced_opening_pool is None:
-        # Default pool: all 9 first moves into the center sub-board (index 4).
-        # encode_move(sub_board, cell) = sub_board * 9 + cell.
         forced_opening_pool = [[4 * 9 + cell] for cell in range(9)]
 
-    records: list[GameRecord] = []
+    def eval_current(batch_tensor):
+        with torch.no_grad():
+            out = network(batch_tensor.to(device))
+            return out.policy_logits, out.win_value, out.ownership
 
-    # 1. Pure self-play
+    def eval_best(batch_tensor):
+        if best_network is None:
+            raise ValueError("best_network must not be None when playing vs_best")
+        with torch.no_grad():
+            out = best_network(batch_tensor.to(device))
+            return out.policy_logits, out.win_value, out.ownership
+
+    class ActiveGame:
+        def __init__(self, game_type: str, forced: list[int] = None, network_player: int = 1):
+            self.game_type = game_type
+            self.state = create_initial_state()
+            self.move_records = []
+            self.forced = forced
+            self.network_player = network_player
+
+        def finish(self) -> GameRecord:
+            for i in range(len(self.move_records) - 1):
+                self.move_records[i].opp_policy_target = self.move_records[i + 1].policy_target
+                self.move_records[i].opp_legal_mask = self.move_records[i + 1].legal_mask
+            
+            if self.move_records:
+                self.move_records[-1].opp_policy_target = torch.zeros(81)
+                self.move_records[-1].opp_legal_mask = torch.zeros(81)
+                
+                if self.game_type != 'self_play':
+                    for rec in self.move_records:
+                        rec.opp_policy_target = torch.zeros(81)
+                        rec.opp_legal_mask = torch.zeros(81)
+
+            winner = self.state.winner if self.state.winner is not None else 0
+            final_results = self.state.sub_board_results.copy()
+
+            for rec in self.move_records:
+                cp = rec.current_player
+                if self.game_type == 'self_play':
+                    rec.value_target = float(winner * cp) if winner != 0 else -0.5
+                else:
+                    rec.value_target = float(winner * cp) if winner != 0 else 0.0
+                    
+                own_wins = np.sum(final_results == cp)
+                opp_wins = np.sum(final_results == -cp)
+                rec.score_target = float(own_wins - opp_wins) / 9.0
+                rec.ownership_target = torch.tensor(
+                    [(1.0 if final_results[i] == cp else 0.0) for i in range(9)],
+                    dtype=torch.float32
+                )
+
+            return GameRecord(
+                moves=self.move_records,
+                winner=winner,
+                game_length=len(self.move_records),
+                final_sub_board_results=final_results,
+            )
+
+    total_games = num_self_play + num_vs_random + num_vs_best
+    records = []
+    pending_games = []
+    
     num_forced = int(round(num_self_play * forced_opening_fraction))
     for i in range(num_self_play):
-        forced = None
-        if i < num_forced and forced_opening_pool:
-            forced = forced_opening_pool[i % len(forced_opening_pool)]
-        records.append(play_self_play_game(
-            network, num_simulations, temp_initial, temp_decay_rate, temp_min,
-            dirichlet_alpha, dirichlet_epsilon, device,
-            dirichlet_epsilon_boost=dirichlet_epsilon_boost,
-            dirichlet_boost_plies=dirichlet_boost_plies,
-            forced_opening=forced,
-        ))
-
-    # 2. Network vs random player — only network moves recorded
-    for i in range(num_vs_random):
-        net_p = 1 if i % 2 == 0 else -1
-        record = play_vs_random_game(network, num_simulations, device=device, network_player=net_p)
-        records.append(record)
+        forced = forced_opening_pool[i % len(forced_opening_pool)] if (i < num_forced and forced_opening_pool) else None
+        pending_games.append(('self_play', forced, 1))
         
-    # 3. Network vs best checkpoint
-    if num_vs_best > 0 and best_network is not None:
-        for i in range(num_vs_best):
-            net_p = 1 if i % 2 == 0 else -1
-            record = play_vs_best_game(network, best_network, num_simulations, device=device, network_player=net_p)
-            records.append(record)
+    for i in range(num_vs_random):
+        pending_games.append(('vs_random', None, 1 if i % 2 == 0 else -1))
+        
+    for i in range(num_vs_best):
+        pending_games.append(('vs_best', None, 1 if i % 2 == 0 else -1))
 
+    active_games = []
+    batch_size = 16
+    
+    def fill_active_games():
+        while len(active_games) < batch_size and pending_games:
+            g_type, forced, net_p = pending_games.pop(0)
+            active_games.append(ActiveGame(g_type, forced, net_p))
+
+    fill_active_games()
+    
+    # Smooth progress bar tracking moves evaluated instead of full games
+    pbar = tqdm(desc=f"Generating Games (0/{total_games}) - Moves Evaluated", unit=" moves")
+
+    while active_games:
+        current_net_games = []
+        best_net_games = []
+        
+        for g in active_games:
+            cp = g.state.current_player
+            if g.game_type == 'self_play':
+                current_net_games.append(g)
+            elif g.game_type == 'vs_random':
+                if cp == g.network_player:
+                    current_net_games.append(g)
+            elif g.game_type == 'vs_best':
+                if cp == g.network_player:
+                    current_net_games.append(g)
+                else:
+                    best_net_games.append(g)
+
+        if current_net_games:
+            epsilons = []
+            for g in current_net_games:
+                if g.game_type == 'self_play':
+                    epsilons.append(epsilon_for_ply(
+                        g.state.move_count,
+                        base_epsilon=dirichlet_epsilon,
+                        boosted_epsilon=dirichlet_epsilon_boost,
+                        boost_plies=dirichlet_boost_plies,
+                    ))
+                else:
+                    epsilons.append(0.0)
+                    
+            roots = run_mcts_batched(
+                [g.state for g in current_net_games],
+                eval_current,
+                num_simulations=num_simulations,
+                dirichlet_alpha=dirichlet_alpha,
+                dirichlet_epsilon=epsilons
+            )
+            
+            for g, root in zip(current_net_games, roots):
+                legal_moves = get_legal_moves(g.state)
+                visits = root.get_visit_counts()
+                policy_tgt = compute_policy_target(visits, len(legal_moves))
+                
+                if g.game_type == 'self_play':
+                    temp = temp_initial * (temp_decay_rate ** g.state.move_count)
+                    if temp < temp_min:
+                        temp = 0.0
+                        
+                    ply = g.state.move_count
+                    if g.forced is not None and ply < len(g.forced):
+                        move = g.forced[ply]
+                        if move not in legal_moves:
+                            move = select_move(root, temperature=temp)
+                    else:
+                        move = select_move(root, temperature=temp)
+                        
+                elif g.game_type == 'vs_random':
+                    move = select_move(root, temperature=0.0)
+                elif g.game_type == 'vs_best':
+                    move = select_move(root, temperature=0.2)
+                
+                record = MoveRecord(
+                    state_tensor=encode_state(g.state),
+                    policy_target=policy_tgt,
+                    opp_policy_target=torch.zeros(81),
+                    opp_legal_mask=torch.zeros(81),
+                    legal_mask=get_legal_move_mask(g.state),
+                    current_player=g.state.current_player,
+                )
+                g.move_records.append(record)
+                g.state = rules_mod.apply_move(g.state, move)
+                
+        if best_net_games:
+            roots = run_mcts_batched(
+                [g.state for g in best_net_games],
+                eval_best,
+                num_simulations=num_simulations,
+                dirichlet_epsilon=0.0
+            )
+            for g, root in zip(best_net_games, roots):
+                legal_moves = get_legal_moves(g.state)
+                visits = root.get_visit_counts()
+                policy_tgt = compute_policy_target(visits, len(legal_moves))
+                
+                move = select_move(root, temperature=0.2)
+                
+                record = MoveRecord(
+                    state_tensor=encode_state(g.state),
+                    policy_target=torch.zeros(81),
+                    opp_policy_target=torch.zeros(81),
+                    opp_legal_mask=torch.zeros(81),
+                    legal_mask=torch.zeros(81),
+                    current_player=g.state.current_player,
+                )
+                g.move_records.append(record)
+                g.state = rules_mod.apply_move(g.state, move)
+
+        random_games = [g for g in active_games if g.game_type == 'vs_random' and g.state.current_player != g.network_player]
+        for g in random_games:
+            legal_moves = get_legal_moves(g.state)
+            move = random.choice(legal_moves)
+            
+            record = MoveRecord(
+                state_tensor=encode_state(g.state),
+                policy_target=torch.zeros(81),
+                opp_policy_target=torch.zeros(81),
+                opp_legal_mask=torch.zeros(81),
+                legal_mask=torch.zeros(81),
+                current_player=g.state.current_player,
+            )
+            g.move_records.append(record)
+            g.state = rules_mod.apply_move(g.state, move)
+            
+        # Update progress bar continuously based on number of active games processed this tick
+        pbar.update(len(active_games))
+
+        surviving_games = []
+        for g in active_games:
+            if g.state.is_terminal:
+                records.append(g.finish())
+                pbar.set_description(f"Generating Games ({len(records)}/{total_games}) - Moves Evaluated")
+            else:
+                surviving_games.append(g)
+                
+        active_games = surviving_games
+        fill_active_games()
+        
+    pbar.close()
+    
     # Shuffle records so the network sees mixed data in each batch
-    import random
     random.shuffle(records)
 
     return records
