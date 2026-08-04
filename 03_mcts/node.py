@@ -188,7 +188,9 @@ class MCTSNode:
             self.parent.Q_O[move] = self.parent.O[move] / n
 
             # Negate value and pass inverted ownership when going up
-            self.parent.backup(-value, parent_ownership)
+            # Apply discount factor (gamma = 0.85) to dampen high-variance leaf values
+            # over long search horizons.
+            self.parent.backup(-value * 0.85, parent_ownership)
 
     def get_visit_counts(self) -> dict[int, int]:
         """Return {move_idx: visit_count} for all visited children."""
