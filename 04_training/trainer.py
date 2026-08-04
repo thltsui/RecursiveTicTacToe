@@ -52,10 +52,10 @@ class TrainingConfig:
     temp_initial:          float = 2.0
     temp_decay_rate:       float = 0.98
     temp_min:              float = 0.25
-    dirichlet_alpha:       float = 0.5
-    dirichlet_epsilon:     float = 0.45
-    dirichlet_epsilon_boost: float = 0.55   # root epsilon for the first dirichlet_boost_plies moves
-    dirichlet_boost_plies: int   = 5        # 0 disables boosting (flat dirichlet_epsilon)
+    dirichlet_alpha:       float = 0.6
+    dirichlet_epsilon:     float = 0.55
+    dirichlet_epsilon_boost: float = 0.65   # root epsilon for the first dirichlet_boost_plies moves
+    dirichlet_boost_plies: int   = 8        # 0 disables boosting (flat dirichlet_epsilon)
     forced_opening_fraction: float = 0.0    # fraction of self-play games forced through forced_opening_pool
 
     # Training
@@ -409,6 +409,9 @@ def train(config: TrainingConfig) -> None:
         print(f"Final checkpoint saved to {path}")
 
 
+
+
+
 def train_step(
     network: nn.Module,
     optimizer: torch.optim.Optimizer,
@@ -473,6 +476,14 @@ def train_step(
         lambda_ownership=config.lambda_ownership,
         lambda_opp=config.lambda_opp,
     )
+
+    # 3b. Add manual L2 regularization penalty to Value Head weights and biases
+    value_head_l2 = 0.0
+    for name, param in network.named_parameters():
+        if 'value_head' in name:
+            value_head_l2 += param.pow(2).sum()
+    breakdown.total = breakdown.total + 0.02 * value_head_l2
+
 
     # 4. Backward pass
     optimizer.zero_grad()
