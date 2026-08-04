@@ -745,6 +745,9 @@ def generate_mixed_batch(
 
         random_games = [g for g in active_games if g.game_type == 'vs_random' and g.state.current_player != g.network_player]
         for g in random_games:
+            if g.state.is_terminal:
+                continue
+                
             legal_moves = get_legal_moves(g.state)
             move = random.choice(legal_moves)
             
