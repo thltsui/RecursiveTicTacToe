@@ -34,7 +34,7 @@ def main():
         num_self_play=10,
         num_vs_random=5,
         num_vs_best=5,
-        num_simulations=200,
+        num_simulations=1200,
         temp_initial=2.0,
         temp_decay_rate=0.94,
         temp_min=0.15,

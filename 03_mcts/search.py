@@ -281,3 +281,98 @@ if __name__ == "__main__":
     print("Greedy selection: PASSED")
 
     print("\n=== Episode 9 PASSED ===")
+import math
+import numpy as np
+import torch
+from importlib import import_module
+from typing import List
+
+search_mod = import_module('03_mcts.search')
+MCTSNode = search_mod.MCTSNode
+_select = search_mod._select
+
+rules_mod = import_module('01_game.rules')
+policy_head_mod = import_module('02_network.policy_head')
+board_mod = import_module('01_game.board')
+
+get_legal_moves = rules_mod.get_legal_moves
+get_legal_move_mask = rules_mod.get_legal_move_mask
+
+def apply_legal_mask(logits, legal_mask):
+    legal_mask = legal_mask.to(logits.device)
+    masked_logits = logits.masked_fill(~legal_mask.bool(), float('-inf'))
+    return torch.nn.functional.softmax(masked_logits, dim=-1)
+
+def run_mcts_batched(root_states, eval_func, num_simulations=1200, c_puct=1.5, dirichlet_alpha=0.3, dirichlet_epsilon=0.0):
+    roots = [MCTSNode(state=s) for s in root_states]
+    epsilons = [dirichlet_epsilon] * len(root_states) if isinstance(dirichlet_epsilon, float) else dirichlet_epsilon
+    
+    unexpanded_roots = [r for r in roots if not r.is_terminal]
+    if unexpanded_roots:
+        state_tensors = [board_mod.encode_state(r.state) for r in unexpanded_roots]
+        batch_tensor = torch.stack(state_tensors)
+        policy_logits, values, ownerships = eval_func(batch_tensor)
+        
+        for i, root in enumerate(unexpanded_roots):
+            orig_idx = roots.index(root)
+            eps = epsilons[orig_idx]
+            legal_moves = get_legal_moves(root.state)
+            legal_mask = get_legal_move_mask(root.state)
+            
+            logits_i = policy_logits[i].unsqueeze(0)
+            probs = apply_legal_mask(logits_i, legal_mask).squeeze(0).cpu()
+
+            if eps > 0 and len(legal_moves) > 0:
+                noise = np.random.dirichlet([dirichlet_alpha] * len(legal_moves))
+                noisy_probs = probs.clone()
+                for j, move in enumerate(legal_moves):
+                    noisy_probs[move] = (1 - eps) * probs[move].item() + eps * noise[j]
+                total = sum(noisy_probs[m].item() for m in legal_moves)
+                if total > 0:
+                    for m in legal_moves:
+                        noisy_probs[m] = noisy_probs[m] / total
+                probs = noisy_probs
+
+            root.expand(probs, legal_moves)
+
+    for _ in range(num_simulations):
+        leaves = [_select(root, c_puct) for root in roots]
+        unexpanded_indices = [i for i, leaf in enumerate(leaves) if not leaf.is_terminal]
+        
+        if unexpanded_indices:
+            unexp_states = [leaves[i].state for i in unexpanded_indices]
+            batch_tensor = torch.stack([board_mod.encode_state(s) for s in unexp_states])
+            policy_logits, values, ownerships = eval_func(batch_tensor)
+            
+            for list_idx, original_idx in enumerate(unexpanded_indices):
+                leaf = leaves[original_idx]
+                legal_moves = get_legal_moves(leaf.state)
+                legal_mask = get_legal_move_mask(leaf.state)
+                
+                logits_i = policy_logits[list_idx].unsqueeze(0)
+                probs = apply_legal_mask(logits_i, legal_mask).squeeze(0).cpu()
+                leaf.expand(probs, legal_moves)
+                leaf.temp_v = float(values[list_idx].item())
+                leaf.temp_o = ownerships[list_idx].cpu().numpy()
+
+        for leaf in leaves:
+            if leaf.is_terminal:
+                if leaf.state.winner is None or leaf.state.winner == 0:
+                    leaf.temp_v = 0.0
+                    leaf.temp_o = np.zeros(9, dtype=np.float32)
+                else:
+                    leaf.temp_v = float(leaf.state.winner)
+                    final_results = leaf.state.sub_board_results
+                    leaf.temp_o = np.array([(1.0 if final_results[j] == 1 else (-1.0 if final_results[j] == -1 else 0.0)) for j in range(9)])
+
+        for root, leaf in zip(roots, leaves):
+            current = leaf
+            cp = leaf.state.current_player
+            while current is not None:
+                val = leaf.temp_v if current.state.current_player == cp else -leaf.temp_v
+                own = leaf.temp_o if current.state.current_player == 1 else -leaf.temp_o
+                search_mod._backup(current, val, own)
+                current = current.parent
+                cp = -cp
+                
+    return roots

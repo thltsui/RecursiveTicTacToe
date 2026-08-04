@@ -101,6 +101,8 @@ def apply_legal_mask(logits: torch.Tensor, legal_mask: torch.Tensor) -> torch.Te
         raise ValueError("No legal moves exist — mask is all zeros")
 
     # Set illegal moves to -inf so softmax gives them probability 0
+    # Ensure mask is on the same device as logits
+    legal_mask = legal_mask.to(logits.device)
     masked_logits = logits.masked_fill(~legal_mask.bool(), float('-inf'))
     probs = F.softmax(masked_logits, dim=-1)
     return probs
