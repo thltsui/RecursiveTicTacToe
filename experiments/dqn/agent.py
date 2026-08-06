@@ -93,10 +93,10 @@ class DQNAgent:
 
     def __init__(
         self,
-        lr: float   = 1e-3,
+        lr: float   = 1e-4,
         gamma: float = 0.99,
         epsilon: float = 0.5,
-        batch_size: int = 256,
+        batch_size: int = 32,
         target_update_freq: int = 500,
         buffer_capacity: int = 100_000,
         device: str = "cpu",
@@ -107,6 +107,7 @@ class DQNAgent:
         self.target_update_freq = target_update_freq
         self.device     = torch.device(device)
         self._grad_steps = 0
+        self._environment_steps = 0
 
         self.online_net = QNetwork().to(self.device)
         self.target_net = QNetwork().to(self.device)
@@ -126,7 +127,7 @@ class DQNAgent:
         legal = get_legal_moves(state)
         if not legal:
             raise ValueError("No legal moves.")
-        if random.random() < self.epsilon:
+        if self.epsilon > 0.0 and random.random() < self.epsilon:
             return random.choice(legal)
 
         s    = encode_state(state).unsqueeze(0).to(self.device)   # (1,7,9,9)
@@ -145,6 +146,27 @@ class DQNAgent:
         mask = get_legal_move_mask(next_state).cpu()
         self.buffer.push(s, move, reward, ns, done, mask)
 
+    def observe(
+        self,
+        state,
+        move: int,
+        reward: float,
+        next_state,
+        done: bool,
+        *,
+        train_every: int = 4,
+        learning_starts: int = 1_000,
+    ) -> float | None:
+        """Store one transition and train at the configured environment cadence."""
+        self.store(state, move, reward, next_state, done)
+        self._environment_steps += 1
+        if (
+            self._environment_steps >= learning_starts
+            and self._environment_steps % train_every == 0
+        ):
+            return self.train_step()
+        return None
+
     # ------------------------------------------------------------------
     # Training step
     # ------------------------------------------------------------------
@@ -161,12 +183,19 @@ class DQNAgent:
         # Q(s, a) for the actions actually taken
         q_current = self.online_net(states).gather(1, moves.unsqueeze(1)).squeeze(1)
 
-        # Target: r + γ · max_a' Q_target(s', a')  (0 if terminal)
+        # Target: r + γ · max_a' Q_target(s', a')  (0 if terminal).
+        # Training transitions span from one agent decision to its next decision,
+        # after the random opponent has moved, so both states use the agent's
+        # perspective and the standard positive bootstrap sign applies.
         with torch.no_grad():
             q_next = self.target_net.q_masked(nexts, masks)          # (B, 81)
             q_next_max = q_next.max(dim=1).values                     # (B,)
-            # Terminals have all-(-inf) Q — clamp to 0 so reward stands alone
-            q_next_max = q_next_max.clamp(min=0.0) * (1.0 - dones)
+            # Terminal masks contain no legal actions, so their maximum is -inf.
+            # Replace it explicitly instead of multiplying by zero (which would
+            # produce NaN), while preserving legitimate negative nonterminal Qs.
+            q_next_max = torch.where(
+                dones.bool(), torch.zeros_like(q_next_max), q_next_max
+            )
             targets = rewards + self.gamma * q_next_max
 
         loss = F.mse_loss(q_current, targets)
@@ -191,6 +220,7 @@ class DQNAgent:
             "target_state_dict": self.target_net.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "grad_steps": self._grad_steps,
+            "environment_steps": self._environment_steps,
             "epsilon": self.epsilon,
         }, path)
 
@@ -200,4 +230,5 @@ class DQNAgent:
         self.target_net.load_state_dict(ckpt["target_state_dict"])
         self.optimizer.load_state_dict(ckpt["optimizer_state_dict"])
         self._grad_steps = ckpt["grad_steps"]
+        self._environment_steps = ckpt.get("environment_steps", 0)
         self.epsilon     = ckpt["epsilon"]
