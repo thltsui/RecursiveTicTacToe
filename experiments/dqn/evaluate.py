@@ -6,9 +6,11 @@ Can be run standalone to evaluate a saved checkpoint:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import random
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 sys.path.insert(0, os.path.dirname(__file__))
@@ -60,7 +62,7 @@ def evaluate_vs_random(
     return wins / total, draws / total, losses / total
 
 
-def print_eval(agent, n_games: int = 500) -> None:
+def print_eval(agent, n_games: int = 500) -> dict[str, float | int]:
     saved_eps     = agent.epsilon
     agent.epsilon = 0.0
     wr, dr, lr    = evaluate_vs_random(agent, n_games=n_games)
@@ -69,6 +71,12 @@ def print_eval(agent, n_games: int = 500) -> None:
     print(f"  Win rate:  {wr:.1%}")
     print(f"  Draw rate: {dr:.1%}")
     print(f"  Loss rate: {lr:.1%}")
+    return {
+        "games": n_games,
+        "win_rate": wr,
+        "draw_rate": dr,
+        "loss_rate": lr,
+    }
 
 
 if __name__ == "__main__":
@@ -76,6 +84,7 @@ if __name__ == "__main__":
     parser.add_argument("--checkpoint", type=str, required=True,
                         help="Path to a saved .pt checkpoint")
     parser.add_argument("--n-games", type=int, default=500)
+    parser.add_argument("--json-out", type=Path)
     args = parser.parse_args()
 
     from agent import DQNAgent
@@ -83,4 +92,10 @@ if __name__ == "__main__":
     agent.load(args.checkpoint)
     agent.epsilon = 0.0
     print(f"Loaded checkpoint: {args.checkpoint}")
-    print_eval(agent, n_games=args.n_games)
+    result = print_eval(agent, n_games=args.n_games)
+    if args.json_out is not None:
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        args.json_out.write_text(
+            json.dumps({"checkpoint": args.checkpoint, **result}, indent=2) + "\n"
+        )
+        print(f"Evaluation saved to {args.json_out}")

@@ -1,0 +1,7 @@
+{
+  "checkpoint": "experiments/dqn/checkpoints/practical_dqn_lr1e4_seed0/dqn_final.pt",
+  "games": 2000,
+  "win_rate": 0.601,
+  "draw_rate": 0.131,
+  "loss_rate": 0.268
+}

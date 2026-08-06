@@ -1,0 +1,221 @@
+{
+  "config": {
+    "episodes": 20000,
+    "eval_every": 1000,
+    "eval_games": 300,
+    "epsilon_start": 0.5,
+    "epsilon_end": 0.05,
+    "learning_rate": 0.0001,
+    "gamma": 0.99,
+    "batch_size": 32,
+    "target_update_freq": 500,
+    "buffer_capacity": 100000,
+    "train_every": 4,
+    "learning_starts": 1000,
+    "seed": 0,
+    "device": "cpu",
+    "torch_version": "2.12.0"
+  },
+  "results": [
+    {
+      "episode": 1000,
+      "win_rate": 0.39,
+      "draw_rate": 0.2467,
+      "loss_rate": 0.3633,
+      "buffer_size": 29236,
+      "grad_steps": 7060,
+      "environment_steps": 29236,
+      "elapsed_s": 100.1
+    },
+    {
+      "episode": 2000,
+      "win_rate": 0.4267,
+      "draw_rate": 0.2033,
+      "loss_rate": 0.37,
+      "buffer_size": 58647,
+      "grad_steps": 14412,
+      "environment_steps": 58647,
+      "elapsed_s": 199.3
+    },
+    {
+      "episode": 3000,
+      "win_rate": 0.45,
+      "draw_rate": 0.2033,
+      "loss_rate": 0.3467,
+      "buffer_size": 87950,
+      "grad_steps": 21738,
+      "environment_steps": 87950,
+      "elapsed_s": 325.6
+    },
+    {
+      "episode": 4000,
+      "win_rate": 0.4967,
+      "draw_rate": 0.19,
+      "loss_rate": 0.3133,
+      "buffer_size": 100000,
+      "grad_steps": 29041,
+      "environment_steps": 117161,
+      "elapsed_s": 448.4
+    },
+    {
+      "episode": 5000,
+      "win_rate": 0.5,
+      "draw_rate": 0.21,
+      "loss_rate": 0.29,
+      "buffer_size": 100000,
+      "grad_steps": 36269,
+      "environment_steps": 146072,
+      "elapsed_s": 571.7
+    },
+    {
+      "episode": 6000,
+      "win_rate": 0.5267,
+      "draw_rate": 0.1867,
+      "loss_rate": 0.2867,
+      "buffer_size": 100000,
+      "grad_steps": 43461,
+      "environment_steps": 174843,
+      "elapsed_s": 695.4
+    },
+    {
+      "episode": 7000,
+      "win_rate": 0.5367,
+      "draw_rate": 0.1967,
+      "loss_rate": 0.2667,
+      "buffer_size": 100000,
+      "grad_steps": 50682,
+      "environment_steps": 203724,
+      "elapsed_s": 823.5
+    },
+    {
+      "episode": 8000,
+      "win_rate": 0.4967,
+      "draw_rate": 0.15,
+      "loss_rate": 0.3533,
+      "buffer_size": 100000,
+      "grad_steps": 57872,
+      "environment_steps": 232485,
+      "elapsed_s": 939.9
+    },
+    {
+      "episode": 9000,
+      "win_rate": 0.5167,
+      "draw_rate": 0.1867,
+      "loss_rate": 0.2967,
+      "buffer_size": 100000,
+      "grad_steps": 65066,
+      "environment_steps": 261261,
+      "elapsed_s": 1039.7
+    },
+    {
+      "episode": 10000,
+      "win_rate": 0.5333,
+      "draw_rate": 0.1533,
+      "loss_rate": 0.3133,
+      "buffer_size": 100000,
+      "grad_steps": 72261,
+      "environment_steps": 290042,
+      "elapsed_s": 1163.6
+    },
+    {
+      "episode": 11000,
+      "win_rate": 0.58,
+      "draw_rate": 0.18,
+      "loss_rate": 0.24,
+      "buffer_size": 100000,
+      "grad_steps": 79446,
+      "environment_steps": 318782,
+      "elapsed_s": 1288.0
+    },
+    {
+      "episode": 12000,
+      "win_rate": 0.5367,
+      "draw_rate": 0.22,
+      "loss_rate": 0.2433,
+      "buffer_size": 100000,
+      "grad_steps": 86643,
+      "environment_steps": 347570,
+      "elapsed_s": 1412.0
+    },
+    {
+      "episode": 13000,
+      "win_rate": 0.5533,
+      "draw_rate": 0.1533,
+      "loss_rate": 0.2933,
+      "buffer_size": 100000,
+      "grad_steps": 93824,
+      "environment_steps": 376292,
+      "elapsed_s": 1537.2
+    },
+    {
+      "episode": 14000,
+      "win_rate": 0.5733,
+      "draw_rate": 0.1833,
+      "loss_rate": 0.2433,
+      "buffer_size": 100000,
+      "grad_steps": 100986,
+      "environment_steps": 404940,
+      "elapsed_s": 1664.6
+    },
+    {
+      "episode": 15000,
+      "win_rate": 0.5767,
+      "draw_rate": 0.18,
+      "loss_rate": 0.2433,
+      "buffer_size": 100000,
+      "grad_steps": 108101,
+      "environment_steps": 433402,
+      "elapsed_s": 1777.2
+    },
+    {
+      "episode": 16000,
+      "win_rate": 0.57,
+      "draw_rate": 0.17,
+      "loss_rate": 0.26,
+      "buffer_size": 100000,
+      "grad_steps": 115187,
+      "environment_steps": 461747,
+      "elapsed_s": 1877.2
+    },
+    {
+      "episode": 17000,
+      "win_rate": 0.6367,
+      "draw_rate": 0.1233,
+      "loss_rate": 0.24,
+      "buffer_size": 100000,
+      "grad_steps": 122247,
+      "environment_steps": 489984,
+      "elapsed_s": 1976.2
+    },
+    {
+      "episode": 18000,
+      "win_rate": 0.57,
+      "draw_rate": 0.1333,
+      "loss_rate": 0.2967,
+      "buffer_size": 100000,
+      "grad_steps": 129303,
+      "environment_steps": 518208,
+      "elapsed_s": 2078.9
+    },
+    {
+      "episode": 19000,
+      "win_rate": 0.6267,
+      "draw_rate": 0.1333,
+      "loss_rate": 0.24,
+      "buffer_size": 100000,
+      "grad_steps": 136387,
+      "environment_steps": 546547,
+      "elapsed_s": 2182.3
+    },
+    {
+      "episode": 20000,
+      "win_rate": 0.5933,
+      "draw_rate": 0.1533,
+      "loss_rate": 0.2533,
+      "buffer_size": 100000,
+      "grad_steps": 143480,
+      "environment_steps": 574916,
+      "elapsed_s": 2285.8
+    }
+  ]
+}

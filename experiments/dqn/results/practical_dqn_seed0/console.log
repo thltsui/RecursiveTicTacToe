@@ -1,0 +1,23 @@
+Ep    1000 | W 42.0%  D 18.3%  L 39.7% | buf 29,428  steps 7,108 | 95s
+Ep    2000 | W 44.0%  D 19.7%  L 36.3% | buf 58,719  steps 14,430 | 220s
+Ep    3000 | W 43.0%  D 22.7%  L 34.3% | buf 88,199  steps 21,800 | 344s
+Ep    4000 | W 39.0%  D 16.7%  L 44.3% | buf 100,000  steps 29,130 | 469s
+Ep    5000 | W 54.3%  D 15.3%  L 30.3% | buf 100,000  steps 36,467 | 594s
+Ep    6000 | W 45.0%  D 22.3%  L 32.7% | buf 100,000  steps 43,822 | 727s
+Ep    7000 | W 42.0%  D 15.0%  L 43.0% | buf 100,000  steps 51,179 | 843s
+Ep    8000 | W 45.0%  D 18.3%  L 36.7% | buf 100,000  steps 58,567 | 945s
+Ep    9000 | W 33.7%  D 30.3%  L 36.0% | buf 100,000  steps 65,969 | 1075s
+Ep   10000 | W 34.0%  D 13.3%  L 52.7% | buf 100,000  steps 73,260 | 1199s
+Ep   11000 | W 35.7%  D 25.0%  L 39.3% | buf 100,000  steps 80,590 | 1327s
+Ep   12000 | W 53.0%  D 13.3%  L 33.7% | buf 100,000  steps 87,948 | 1456s
+Ep   13000 | W 34.3%  D 30.7%  L 35.0% | buf 100,000  steps 95,278 | 1587s
+Ep   14000 | W 52.7%  D 16.7%  L 30.7% | buf 100,000  steps 102,660 | 1708s
+Ep   15000 | W 46.0%  D 16.7%  L 37.3% | buf 100,000  steps 109,926 | 1810s
+Ep   16000 | W 35.0%  D 27.0%  L 38.0% | buf 100,000  steps 117,198 | 1934s
+Ep   17000 | W 31.7%  D 20.0%  L 48.3% | buf 100,000  steps 124,482 | 2060s
+Ep   18000 | W 50.0%  D 24.0%  L 26.0% | buf 100,000  steps 131,780 | 2187s
+Ep   19000 | W 35.0%  D 28.7%  L 36.3% | buf 100,000  steps 139,096 | 2316s
+Ep   20000 | W 37.3%  D 27.0%  L 35.7% | buf 100,000  steps 146,380 | 2451s
+
+Log saved to /Users/holungtsui/Documents/GitHub/UlltimateTicTacToe/experiments/dqn/results/practical_dqn_seed0/training_log.json
+Final checkpoint: /Users/holungtsui/Documents/GitHub/UlltimateTicTacToe/experiments/dqn/checkpoints/practical_dqn_seed0/dqn_final.pt
