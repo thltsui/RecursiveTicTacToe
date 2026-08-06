@@ -32,36 +32,42 @@ Convolutions are a natural fit here because the board has real spatial structure
 
 Neural Q-learning (DQN) adds two ingredients on top of plain Q-learning: an **experience replay buffer** that stores past transitions and samples from them randomly, and a **target network** that gives training stable Q-value targets to aim at.
 
-Training the network means giving it something to predict, the same idea as the table above, with a differentiable function standing in for the lookup. For each transition sampled from the replay buffer, the target is the reward received plus the discounted best Q-value the target network assigns to the next state: target = r + γ · max Q_target(s′, a′). The loss is the mean squared error between the network's own Q(s, a) for the action actually taken and that target, a number built entirely from tensors the network produced itself. Calling .backward() on that loss walks it back through the fully connected head and the convolutional layers, and gradient descent nudges every weight so the Q-value estimate moves a little closer to the target.
+Training the network means giving it something to predict, the same idea as the table above, with a differentiable function standing in for the lookup. Because the encoder always represents the current player, each stored transition spans from one DQN decision to its next decision after the random opponent replies. Both s and s′ therefore belong to the learning agent's perspective, and the target is r + γ · max Q_target(s′, a′) for non-terminal transitions, or just r when the game has ended. The loss is the mean squared error between that target and Q(s, a); calling .backward() propagates the correction through the fully connected head and convolutional layers.
 
 ![DQN architecture](images/fig07_dqn_architecture.png)
 
-The buffer stores past transitions and samples a random batch each step: [lines 34–74](https://github.com/thltsui/RecursiveTicTacToe/blob/8e19888892029b086e01376cfbe0d4f7aaace3e4/experiments/dqn/agent.py#L34-L74). Action selection is epsilon-greedy over the online network's own Q-values, masked to legal moves: [lines 123–135](https://github.com/thltsui/RecursiveTicTacToe/blob/8e19888892029b086e01376cfbe0d4f7aaace3e4/experiments/dqn/agent.py#L123-L135). And the training step itself, computing the TD target off the target network, the mean squared error against it, and the gradient step, is the mechanism described above: [lines 152–182](https://github.com/thltsui/RecursiveTicTacToe/blob/8e19888892029b086e01376cfbe0d4f7aaace3e4/experiments/dqn/agent.py#L152-L182).
+The replay buffer holds 100,000 transitions. After a 1,000-transition warm-up, training samples a batch of 32 every four DQN decisions. Action selection is epsilon-greedy over the online network's Q-values, masked to legal moves; every 500 gradient steps, the online weights are copied to the target network.
 
 ### Training Loop
 
-Training plays the agent against itself and a random opponent within the same loop, storing a transition and calling the training step after every move: [dqn/train.py, lines 41–82](https://github.com/thltsui/RecursiveTicTacToe/blob/8e19888892029b086e01376cfbe0d4f7aaace3e4/experiments/dqn/train.py#L41-L82). The outer loop wraps this across 20,000 episodes with the same kind of epsilon decay and periodic evaluation as the tabular case: [lines 89–160](https://github.com/thltsui/RecursiveTicTacToe/blob/8e19888892029b086e01376cfbe0d4f7aaace3e4/experiments/dqn/train.py#L89-L160).
+Training alternates the DQN between X and O against a uniform-random opponent. We store only the DQN's decisions. Each replay transition runs from one DQN turn to its next turn, after the random reply, so both states are encoded from the learning agent's perspective. After the warm-up, the agent performs one gradient update every four DQN decisions. The outer loop runs for 20,000 episodes, with epsilon decaying from 0.5 to 0.05 and evaluation every 1,000 episodes.
 
 ### Results and the Ceiling
 
-Training for 20,000 episodes (roughly 15 minutes on a CPU):
+I ran two 20,000-episode CPU experiments with seed 0. Each checkpoint was evaluated over the same 300 games, alternating X and O. The inherited Adam learning rate of 0.001 was unstable; lowering it to 0.0001 produced sustained improvement. The stable run took 2,286 seconds—38 minutes 6 seconds—on this machine.
 
 ```
-Ep  1000 | W 56.5%  D 6.0%  L 37.5%
-Ep  5000 | W 64.0%  D 7.0%  L 29.0%
-Ep 10000 | W 70.5%  D 8.5%  L 21.0%
-Ep 20000 | W 73.5%  D 8.5%  L 18.0%
+Ep  1000 | W 39.0%  D 24.7%  L 36.3%
+Ep  5000 | W 50.0%  D 21.0%  L 29.0%
+Ep 10000 | W 53.3%  D 15.3%  L 31.3%
+Ep 15000 | W 57.7%  D 18.0%  L 24.3%
+Ep 20000 | W 59.3%  D 15.3%  L 25.3%
+
+Final checkpoint, fresh 2,000-game evaluation:
+W 60.1%  D 13.1%  L 26.8%
 ```
 
-Progress is real, but slow, and the curve flattens out for several reasons that compound on each other.
+![DQN performance against a random opponent at two learning rates](images/dqn_learning_curve.png)
 
-**Sparse rewards.** The only strong signal is the terminal win or loss: every move in a forty-move game gets reward 0, and only the very last one gets plus or minus one, so the network has to credit forty decisions off a single scalar, exactly the credit-assignment problem [The Reinforcement Learning Landscape](https://tthl.substack.com/p/from-zero-to-alphazero-the-reinforcement) described. The small sub-board shaping reward takes the edge off, but does not come close to solving it.
+The lower-rate agent improved from 39.0% wins at 1,000 episodes to 59.3% at 20,000, peaking at 63.7% at episode 17,000. A separate 2,000-game evaluation of the final checkpoint measured 60.1% wins, 13.1% draws, and 26.8% losses. That is a genuine edge over random, but also a clear ceiling: more training did not produce anything close to expert play.
+
+**Sparse rewards.** A typical game contains roughly twenty DQN decisions. Most transitions receive zero reward, with only a small ±0.05 sub-board shaping signal; the terminal ±1 outcome appears once. The network must propagate that late information backward through a long chain of estimates, exactly the credit-assignment problem [The Reinforcement Learning Landscape](https://tthl.substack.com/p/from-zero-to-alphazero-the-reinforcement) described.
 
 **No lookahead.** The Q-network evaluates each position on its own and cannot reason about a sequence of moves, so a position that looks neutral might actually be a forced win three moves out, and there is no way for the network to see that without search.
 
 **Single-opponent training.** Training against a random opponent caps how good the agent ever needs to get: it learns to punish random mistakes and never learns to handle an opponent that plays well.
 
-**Bootstrapping instability.** Each update nudges an estimate toward another estimate, and in a large, sparse-reward space that chain is noisy and slow to settle.
+**Bootstrapping instability.** Each update nudges one estimate toward another estimate. We saw this directly: with Adam at 0.001, the win rate swung between 31.7% and 54.3% and finished at 35.1% over 2,000 fresh games. Lowering the rate to 0.0001 made learning slower but far more stable.
 
 ## What Would Fix This
 
@@ -83,4 +89,4 @@ The neural Q-network we built carries over directly. The `QNetwork` architecture
 
 ---
 
-*Full notebook: A companion notebook for this post (coming soon) will include the full training run, loss curves, visualisations of learned Q-values, and a head-to-head tournament between the tabular agent, the DQN agent, and random play.*
+*Reproducibility: the experiment runner records its configuration, checkpoint evaluations, elapsed time, and final checkpoint. The reported final result was re-evaluated over 2,000 games after training; it is not the best point selected from the learning curve.*
