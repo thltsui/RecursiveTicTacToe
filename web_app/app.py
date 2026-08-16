@@ -36,8 +36,8 @@ try:
 except ImportError:
     _transformer_available = False
 
-# Configure torch for thread safety and to prevent CPU thrashing
-torch.set_num_threads(1)
+# Configure torch for thread safety and optimal inference performance
+torch.set_num_threads(2)
 
 board_mod = import_module('01_game.board')
 rules_mod = import_module('01_game.rules')
@@ -68,8 +68,8 @@ socketio = SocketIO(app, cors_allowed_origins="*", message_queue=redis_url)
 # ── Global state ────────────────────────────────────────────────────────────
 
 network = None
-# Number of MCTS simulations based on difficulty
-DIFFICULTY_SIMS = {'easy': 500, 'medium': 1000, 'hard': 2000}
+# Number of MCTS simulations optimized for web responsiveness with the 192ch x 10block CNN
+DIFFICULTY_SIMS = {'easy': 80, 'medium': 200, 'hard': 400}
 
 def c_puct_for_phase(move_count: int) -> float:
     """Exploration boost at both ends of the game -- helps PUCT surface
@@ -252,35 +252,36 @@ def get_analysis(state, sims, add_noise=False):
     # Create an explicit copy of the state for thread safety
     safe_state = state.copy()
 
-    # Raw network output
-    net_output = network.predict(safe_state, device='cpu')
-    legal_mask = get_legal_move_mask(safe_state)
+    with torch.inference_mode():
+        # Raw network output
+        net_output = network.predict(safe_state, device='cpu')
+        legal_mask = get_legal_move_mask(safe_state)
 
-    # Policy probabilities (softmax + legal mask)
-    policy_probs = apply_legal_mask(net_output.policy_logits, legal_mask)
-    policy_list = policy_probs.detach().cpu().tolist()
+        # Policy probabilities (softmax + legal mask)
+        policy_probs = apply_legal_mask(net_output.policy_logits, legal_mask)
+        policy_list = policy_probs.detach().cpu().tolist()
 
-    # Opponent policy
-    opp_probs = apply_legal_mask(net_output.opp_policy_logits, legal_mask)
-    opp_list = opp_probs.detach().cpu().tolist()
+        # Opponent policy
+        opp_probs = apply_legal_mask(net_output.opp_policy_logits, legal_mask)
+        opp_list = opp_probs.detach().cpu().tolist()
 
-    # Value outputs
-    win_value = net_output.win_value.item()
-    score_margin = net_output.score_margin.item()
+        # Value outputs
+        win_value = net_output.win_value.item()
+        score_margin = net_output.score_margin.item()
 
-    # Ownership (9 sub-boards)
-    ownership = net_output.ownership.detach().cpu().tolist()
+        # Ownership (9 sub-boards)
+        ownership = net_output.ownership.detach().cpu().tolist()
 
-    # Run MCTS
-    c_puct = c_puct_for_phase(state.move_count)
-    epsilon = 0.15 if add_noise else 0.0
-    root = search_mod.run_mcts(
-        safe_state, network,
-        num_simulations=sims,
-        dirichlet_epsilon=epsilon,
-        device='cpu',
-        c_puct=c_puct,
-    )
+        # Run MCTS
+        c_puct = c_puct_for_phase(state.move_count)
+        epsilon = 0.15 if add_noise else 0.0
+        root = search_mod.run_mcts(
+            safe_state, network,
+            num_simulations=sims,
+            dirichlet_epsilon=epsilon,
+            device='cpu',
+            c_puct=c_puct,
+        )
 
     # MCTS visit counts and Q-values for all 81 cells
     visits_dict = root.get_visit_counts()
@@ -414,8 +415,8 @@ def do_ai_move(state, sims):
     Flow:
     1. Run MCTS from AI's perspective → pick AI's best move
     2. Apply AI's move → new state (now it's human's turn)
-    3. If game is not over, run a SECOND analysis on the new position
-       (from human's perspective) so the frontend shows the human's options
+    3. If game is not over, run a lightweight analysis on the new position
+       (from human's perspective) so the frontend shows recommended moves instantly
     4. Return: new state + AI's move + human-perspective analysis
     """
     # Step 1: AI decides its move (internal, not surfaced)
@@ -430,8 +431,9 @@ def do_ai_move(state, sims):
     result['ai_move'] = int(ai_move)
 
     # Step 3: Analyze the resulting position from the HUMAN's perspective
+    # Cap to 100 sims so the second pass takes <0.3s instead of doubling the wait time
     if not state.is_terminal:
-        human_analysis, _ = get_analysis(state, sims)
+        human_analysis, _ = get_analysis(state, min(sims, 100))
         result['analysis'] = human_analysis
     else:
         # Game is over — no analysis needed, but include final eval
