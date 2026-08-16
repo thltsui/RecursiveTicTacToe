@@ -18,9 +18,7 @@ COPY 03_mcts/ ./03_mcts/
 COPY transformer/ ./transformer/
 COPY web_app/ ./web_app/
 
-# Copy model checkpoints
-# transformer_best.pt is the latest Transformer model; best_ever_model.pt is the legacy CNN fallback
-COPY checkpoints/transformer_best.pt ./checkpoints/
+# Copy model checkpoint (Iteration 600 CNN champion)
 COPY checkpoints/best_ever_model.pt ./checkpoints/
 
 EXPOSE 5001
