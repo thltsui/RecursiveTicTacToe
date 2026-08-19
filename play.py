@@ -18,7 +18,7 @@ from importlib import import_module
 board_mod = import_module('01_game.board')
 rules_mod = import_module('01_game.rules')
 viz_mod = import_module('01_game.visualizer')
-network_mod = import_module('02_network.network')
+model_factory_mod = import_module('02_network.model_factory')
 search_mod = import_module('03_mcts.search')
 trainer_mod = import_module('04_training.trainer')
 gradcam_mod = import_module('05_explainability.gradcam')
@@ -30,7 +30,6 @@ encode_move = board_mod.encode_move
 get_legal_moves = rules_mod.get_legal_moves
 apply_move = rules_mod.apply_move
 render_board_ascii = viz_mod.render_board_ascii
-UltimateTTTNetwork = network_mod.UltimateTTTNetwork
 run_mcts = search_mod.run_mcts
 select_move = search_mod.select_move
 compute_gradcam = gradcam_mod.compute_gradcam
@@ -118,25 +117,29 @@ def load_network(checkpoint_path=None):
         cp_path = pts[-1] if pts else None
 
     if cp_path:
-        # Peek at checkpoint to get network config
         checkpoint = torch.load(cp_path, weights_only=False, map_location='cpu')
-        state_dict = checkpoint['network_state_dict']
-        # Infer channels from first conv weight shape
-        first_key = [k for k in state_dict if 'input_conv.weight' in k][0]
-        channels = state_dict[first_key].shape[0]
-        # Infer num_blocks from number of trunk blocks
-        num_blocks = sum(1 for k in state_dict if '.conv1.weight' in k and 'trunk' in k)
-
-        net = UltimateTTTNetwork(channels=channels, num_blocks=num_blocks)
-        net.load_state_dict(state_dict)
+        net, model_config = model_factory_mod.create_network_from_checkpoint(checkpoint)
         iteration = checkpoint.get('iteration', '?')
         elo = checkpoint.get('elo', '?')
+        depth = 'layers' if model_config.architecture == 'transformer' else 'blocks'
         print(f"{GREEN}Loaded checkpoint: {cp_path}{RESET}")
-        print(f"{DIM}  Iteration: {iteration}, Elo: {elo}, Network: {channels}ch x {num_blocks}blocks{RESET}")
+        print(
+            f"{DIM}  Iteration: {iteration}, Elo: {elo}, Network: "
+            f"{model_config.architecture} {model_config.channels}ch x "
+            f"{model_config.num_blocks}{depth}{RESET}"
+        )
         return net, True
     else:
-        # Fresh random network (smaller for faster play without training)
-        net = UltimateTTTNetwork(channels=64, num_blocks=4)
+        # Even the untrained fallback uses the same JSON architecture source.
+        config = trainer_mod.load_training_config(
+            os.path.join(
+                os.path.dirname(__file__),
+                'configs',
+                'training',
+                'lite_transformer.json',
+            )
+        )
+        net = model_factory_mod.create_network(config.model_config())
         print(f"{YELLOW}No checkpoint found — using untrained network (random play){RESET}")
         return net, False
 

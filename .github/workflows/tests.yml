@@ -25,6 +25,8 @@ jobs:
           enable-cache: true
       - name: Install locked dependencies
         run: uv sync --frozen
+      - name: Validate canonical training configuration
+        run: uv run python train.py --config configs/training/lite_transformer.json --print-config
       - name: Run unit tests
         run: uv run pytest -q
       - name: Check browser JavaScript syntax

@@ -18,8 +18,9 @@ COPY 03_mcts/ ./03_mcts/
 COPY transformer/ ./transformer/
 COPY web_app/ ./web_app/
 
-# Copy model checkpoint (Iteration 600 CNN champion)
-COPY checkpoints/best_ever_model.pt ./checkpoints/
+# .dockerignore admits only promoted deployment checkpoints. The web loader
+# prefers transformer_best.pt and retains best_ever_model.pt as rollback.
+COPY checkpoints/ ./checkpoints/
 
 EXPOSE 5001
 

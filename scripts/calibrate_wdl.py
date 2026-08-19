@@ -14,6 +14,7 @@ Example (run explicitly after training):
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import random
@@ -25,39 +26,21 @@ import torch
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
-network_mod = import_module('02_network.network')
+model_factory_mod = import_module('02_network.model_factory')
 replay_mod = import_module('04_training.replay_buffer')
 calibration_mod = import_module('06_evaluation.calibration')
 
 
-def _is_transformer(state_dict: dict) -> bool:
-    return 'pos_embed' in state_dict or any('patch_embed' in key for key in state_dict)
+def _sha256_file(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, 'rb') as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _load_network(checkpoint: dict):
-    state_dict = checkpoint['network_state_dict']
-    if _is_transformer(state_dict):
-        transformer_mod = import_module('transformer.transformer_network')
-        channels = state_dict['pos_embed'].shape[-1]
-        num_blocks = sum(
-            key.endswith('.self_attn.in_proj_weight')
-            and 'transformer.layers.' in key
-            for key in state_dict
-        ) or 4
-        network = transformer_mod.TransformerTTTNetwork(channels, num_blocks)
-    else:
-        input_weights = [
-            value for key, value in state_dict.items() if key.endswith('input_conv.weight')
-        ]
-        if not input_weights:
-            raise ValueError("cannot infer CNN channels from checkpoint")
-        channels = input_weights[0].shape[0]
-        num_blocks = sum(
-            key.endswith('.conv1.weight') and 'trunk.' in key for key in state_dict
-        )
-        network = network_mod.UltimateTTTNetwork(channels, num_blocks)
-
-    network.load_state_dict(state_dict)
+    network, _ = model_factory_mod.create_network_from_checkpoint(checkpoint)
     if not bool(network.value_head.wdl_is_native.item()):
         raise ValueError(
             "legacy scalar checkpoints cannot produce meaningful draw "
@@ -128,10 +111,15 @@ def main() -> None:
 
     report = {
         'positions': len(records),
+        'calibration_buffer_sha256': _sha256_file(args.held_out_buffer),
         'temperature': temperature,
         'before': _metrics(before_probs, targets),
         'after': _metrics(after_probs, targets),
     }
+    checkpoint['checkpoint_format_version'] = 2
+    checkpoint['model_config'] = model_factory_mod.model_config_for_network(
+        network
+    ).to_dict()
     checkpoint['network_state_dict'] = network.state_dict()
     checkpoint['wdl_calibration'] = report
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)

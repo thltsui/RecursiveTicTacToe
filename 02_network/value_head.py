@@ -42,16 +42,16 @@ class ValueHead(nn.Module):
     (KataGo domain-independent improvement). They force the network to
     develop an internal model of board control, not just win probability.
 
-    Architecture:
+    Architecture (dimensions are configurable and checkpointed):
         input (B, C, 9, 9)
-            -> Conv2d(C, 32, kernel=1) -> BN -> ReLU     # (B, 32, 9, 9)
-            -> Flatten                                     # (B, 2592)
-            -> Linear(2592, 512) -> ReLU                   # (B, 512)
-            -> Linear(512, 128) -> ReLU                    # (B, 128)
+            -> Conv2d(C, V, kernel=1) -> BN -> ReLU
+            -> Flatten
+            -> Linear(V * 81, H) -> ReLU
+            -> Linear(H, F) -> ReLU
             -> shared_features
-                 |-> Linear(128, 3) -> Softmax -> W/D/L          (B, 3)
-                 |-> Linear(128, 1) -> Tanh    -> score_margin   (B, 1)
-                 |-> Linear(128, 9) -> Sigmoid -> ownership      (B, 9)
+                 |-> Linear(F, 3) -> Softmax -> W/D/L          (B, 3)
+                 |-> Linear(F, 1) -> Tanh    -> score_margin   (B, 1)
+                 |-> Linear(F, 9) -> Sigmoid -> ownership      (B, 9)
 
     Args:
         in_channels: Number of channels from trunk (C).
@@ -60,19 +60,28 @@ class ValueHead(nn.Module):
     Output: ValueHeadOutput namedtuple
     """
 
-    def __init__(self, in_channels: int):
+    def __init__(
+        self,
+        in_channels: int,
+        conv_channels: int = 32,
+        hidden_size: int = 512,
+        feature_size: int = 128,
+    ):
         super().__init__()
 
-        self.conv = nn.Conv2d(in_channels, 32, kernel_size=1)
-        self.bn = nn.BatchNorm2d(32)
+        if min(conv_channels, hidden_size, feature_size) <= 0:
+            raise ValueError("value-head dimensions must be positive")
 
-        self.fc1 = nn.Linear(32 * 81, 512)
-        self.fc2 = nn.Linear(512, 128)
-        self.ln = nn.LayerNorm(128, elementwise_affine=False)
+        self.conv = nn.Conv2d(in_channels, conv_channels, kernel_size=1)
+        self.bn = nn.BatchNorm2d(conv_channels)
 
-        self.val_out = nn.Linear(128, 3)
-        self.score_out = nn.Linear(128, 1)
-        self.own_out = nn.Linear(128, 9)
+        self.fc1 = nn.Linear(conv_channels * 81, hidden_size)
+        self.fc2 = nn.Linear(hidden_size, feature_size)
+        self.ln = nn.LayerNorm(feature_size, elementwise_affine=False)
+
+        self.val_out = nn.Linear(feature_size, 3)
+        self.score_out = nn.Linear(feature_size, 1)
+        self.own_out = nn.Linear(feature_size, 9)
 
         # Fitted on a held-out calibration set after network training.  Keeping
         # this as a buffer makes the calibration part of the deployed artifact.

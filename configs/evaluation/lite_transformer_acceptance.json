@@ -1,0 +1,11 @@
+{
+  "max_parameters": 500000,
+  "hard_simulations": 400,
+  "max_hard_search_median_ms": 2500.0,
+  "min_arena_games": 100,
+  "min_arena_score": 0.5,
+  "min_calibration_positions": 10000,
+  "max_negative_log_likelihood": 1.0,
+  "max_brier_score": 0.6,
+  "max_classwise_ece": 0.1
+}

@@ -241,6 +241,183 @@ def play_self_play_game(
     )
 
 
+def _network_batch_evaluator(network, device: str):
+    """Adapt a network to ``run_mcts_batched`` without tracking gradients."""
+    network.eval()
+
+    def evaluate(batch: torch.Tensor):
+        with torch.inference_mode():
+            return network(batch.to(device))
+
+    return evaluate
+
+
+def _record_mcts_position(state, root) -> MoveRecord:
+    board_mod = import_module('01_game.board')
+    rules_mod = import_module('01_game.rules')
+    policy_target_mod = import_module('03_mcts.policy_target')
+    legal_moves = rules_mod.get_legal_moves(state)
+    return MoveRecord(
+        state_tensor=board_mod.encode_state(state),
+        policy_target=policy_target_mod.compute_policy_target(
+            root.get_visit_counts(), len(legal_moves)
+        ),
+        opp_policy_target=torch.zeros(81),
+        opp_legal_mask=torch.zeros(81),
+        legal_mask=rules_mod.get_legal_move_mask(state),
+        current_player=state.current_player,
+    )
+
+
+def _completed_game_record(state, move_records: list[MoveRecord]) -> GameRecord:
+    """Finalize auxiliary and outcome targets for one completed continuation."""
+    for index in range(len(move_records) - 1):
+        move_records[index].opp_policy_target = move_records[index + 1].policy_target
+        move_records[index].opp_legal_mask = move_records[index + 1].legal_mask
+    if move_records:
+        move_records[-1].opp_policy_target = torch.zeros(81)
+        move_records[-1].opp_legal_mask = torch.zeros(81)
+
+    winner = state.winner if state.winner is not None else 0
+    final_results = state.sub_board_results.copy()
+    _finalize_move_targets(move_records, winner, final_results)
+    return GameRecord(
+        moves=move_records,
+        winner=winner,
+        game_length=len(move_records),
+        final_sub_board_results=final_results,
+    )
+
+
+def play_self_play_games_batched(
+    network: 'UltimateTTTNetwork',
+    num_games: int,
+    num_simulations: int = 800,
+    temp_initial: float = 2.0,
+    temp_decay_rate: float = 0.94,
+    temp_min: float = 0.15,
+    dirichlet_alpha: float = 0.3,
+    dirichlet_epsilon: float = 0.35,
+    device: str = 'cpu',
+    dirichlet_epsilon_boost: float = 0.55,
+    dirichlet_boost_plies: int = 5,
+    forced_openings: list[list[int] | None] | None = None,
+) -> list[GameRecord]:
+    """Play independent self-play games with one leaf-evaluation batch.
+
+    Each game keeps its own tree, temperature, Dirichlet sample, and optional
+    forced opening.  Only neural leaf evaluation is shared, so every selected
+    leaf is still backed up exactly once per simulation.
+    """
+    if num_games <= 0:
+        return []
+    if forced_openings is None:
+        forced_openings = [None] * num_games
+    if len(forced_openings) != num_games:
+        raise ValueError("forced_openings must have one entry per game")
+
+    board_mod = import_module('01_game.board')
+    rules_mod = import_module('01_game.rules')
+    search_mod = import_module('03_mcts.search')
+    states = [board_mod.create_initial_state() for _ in range(num_games)]
+    moves_by_game: list[list[MoveRecord]] = [[] for _ in range(num_games)]
+    evaluator = _network_batch_evaluator(network, device)
+
+    while True:
+        active_indices = [
+            index for index, state in enumerate(states) if not state.is_terminal
+        ]
+        if not active_indices:
+            break
+        active_states = [states[index] for index in active_indices]
+        epsilons = [
+            search_mod.epsilon_for_ply(
+                state.move_count,
+                base_epsilon=dirichlet_epsilon,
+                boosted_epsilon=dirichlet_epsilon_boost,
+                boost_plies=dirichlet_boost_plies,
+            )
+            for state in active_states
+        ]
+        roots = search_mod.run_mcts_batched(
+            active_states,
+            evaluator,
+            num_simulations=num_simulations,
+            c_puct=1.0,
+            dirichlet_alpha=dirichlet_alpha,
+            dirichlet_epsilon=epsilons,
+        )
+
+        for active_offset, game_index in enumerate(active_indices):
+            state = states[game_index]
+            root = roots[active_offset]
+            record = _record_mcts_position(state, root)
+            moves_by_game[game_index].append(record)
+
+            temperature = temp_initial * (temp_decay_rate ** state.move_count)
+            if temperature < temp_min:
+                temperature = 0.0
+            legal_moves = rules_mod.get_legal_moves(state)
+            forced = forced_openings[game_index]
+            ply = len(moves_by_game[game_index]) - 1
+            if forced is not None and ply < len(forced) and forced[ply] in legal_moves:
+                move = forced[ply]
+            else:
+                move = search_mod.select_move(root, temperature=temperature)
+            states[game_index] = rules_mod.apply_move(state, move)
+
+    return [
+        _completed_game_record(states[index], moves_by_game[index])
+        for index in range(num_games)
+    ]
+
+
+def play_reanalyzed_games_batched(
+    network: 'UltimateTTTNetwork',
+    start_states: list['GameState'],
+    num_simulations: int = 800,
+    device: str = 'cpu',
+    temperature: float = 0.0,
+) -> list[GameRecord]:
+    """Adjudicate arbitrary non-terminal states with batched strong play."""
+    if any(state.is_terminal for state in start_states):
+        raise ValueError("cannot reanalyse a terminal state")
+    if not start_states:
+        return []
+
+    rules_mod = import_module('01_game.rules')
+    search_mod = import_module('03_mcts.search')
+    states = [state.copy() for state in start_states]
+    moves_by_game: list[list[MoveRecord]] = [[] for _ in states]
+    evaluator = _network_batch_evaluator(network, device)
+
+    while True:
+        active_indices = [
+            index for index, state in enumerate(states) if not state.is_terminal
+        ]
+        if not active_indices:
+            break
+        active_states = [states[index] for index in active_indices]
+        roots = search_mod.run_mcts_batched(
+            active_states,
+            evaluator,
+            num_simulations=num_simulations,
+            c_puct=1.0,
+            dirichlet_epsilon=0.0,
+        )
+        for active_offset, game_index in enumerate(active_indices):
+            state = states[game_index]
+            root = roots[active_offset]
+            moves_by_game[game_index].append(_record_mcts_position(state, root))
+            move = search_mod.select_move(root, temperature=temperature)
+            states[game_index] = rules_mod.apply_move(state, move)
+
+    return [
+        _completed_game_record(states[index], moves_by_game[index])
+        for index in range(len(states))
+    ]
+
+
 def play_random_vs_random_game() -> GameRecord:
     """Play a legacy representation-bootstrap game with two random players.
 
@@ -632,6 +809,7 @@ def generate_mixed_batch(
     num_reanalyzed: int = 0,
     reanalysis_min_prefix_plies: int = 4,
     reanalysis_max_prefix_plies: int = 20,
+    self_play_batch_size: int = 1,
     device: str = 'cpu',
 ) -> list[GameRecord]:
     """Generate a mixed batch of self-play data.
@@ -673,11 +851,16 @@ def generate_mixed_batch(
             sub-board (sub-board index 4) -- i.e. encode_move(4, 0..8) -- which
             covers the center-center opening plus its 8 neighbors, the exact
             line found to be almost never chosen by MCTS's own search.
+        self_play_batch_size: Number of independent games whose leaf positions
+            are evaluated together. A value greater than one activates batched
+            MCTS for pure self-play and strong reanalysis games.
         device: Compute device.
 
     Returns:
         List of GameRecord objects (shuffled).
     """
+    if self_play_batch_size <= 0:
+        raise ValueError("self_play_batch_size must be positive")
     if forced_opening_pool is None:
         # Default pool: all 9 first moves into the center sub-board (index 4).
         # encode_move(sub_board, cell) = sub_board * 9 + cell.
@@ -687,27 +870,65 @@ def generate_mixed_batch(
 
     # 1. Pure self-play
     num_forced = int(round(num_self_play * forced_opening_fraction))
+    forced_openings: list[list[int] | None] = []
     for i in range(num_self_play):
-        forced = None
-        if i < num_forced and forced_opening_pool:
-            forced = forced_opening_pool[i % len(forced_opening_pool)]
-        records.append(play_self_play_game(
-            network, num_simulations, temp_initial, temp_decay_rate, temp_min,
-            dirichlet_alpha, dirichlet_epsilon, device,
-            dirichlet_epsilon_boost=dirichlet_epsilon_boost,
-            dirichlet_boost_plies=dirichlet_boost_plies,
-            forced_opening=forced,
-        ))
+        forced_openings.append(
+            forced_opening_pool[i % len(forced_opening_pool)]
+            if i < num_forced and forced_opening_pool
+            else None
+        )
+    if self_play_batch_size == 1:
+        for forced in forced_openings:
+            records.append(play_self_play_game(
+                network, num_simulations, temp_initial, temp_decay_rate, temp_min,
+                dirichlet_alpha, dirichlet_epsilon, device,
+                dirichlet_epsilon_boost=dirichlet_epsilon_boost,
+                dirichlet_boost_plies=dirichlet_boost_plies,
+                forced_opening=forced,
+            ))
+    else:
+        for start in range(0, num_self_play, self_play_batch_size):
+            chunk_forced = forced_openings[start:start + self_play_batch_size]
+            records.extend(play_self_play_games_batched(
+                network,
+                num_games=len(chunk_forced),
+                num_simulations=num_simulations,
+                temp_initial=temp_initial,
+                temp_decay_rate=temp_decay_rate,
+                temp_min=temp_min,
+                dirichlet_alpha=dirichlet_alpha,
+                dirichlet_epsilon=dirichlet_epsilon,
+                device=device,
+                dirichlet_epsilon_boost=dirichlet_epsilon_boost,
+                dirichlet_boost_plies=dirichlet_boost_plies,
+                forced_openings=chunk_forced,
+            ))
 
     # 2. Diverse states, with strong play used for every recorded target.
-    for _ in range(num_reanalyzed + num_vs_random):
-        records.append(play_random_prefix_reanalyzed_game(
-            network,
-            num_simulations=num_simulations,
-            device=device,
-            min_prefix_plies=reanalysis_min_prefix_plies,
-            max_prefix_plies=reanalysis_max_prefix_plies,
-        ))
+    num_diverse = num_reanalyzed + num_vs_random
+    if self_play_batch_size == 1:
+        for _ in range(num_diverse):
+            records.append(play_random_prefix_reanalyzed_game(
+                network,
+                num_simulations=num_simulations,
+                device=device,
+                min_prefix_plies=reanalysis_min_prefix_plies,
+                max_prefix_plies=reanalysis_max_prefix_plies,
+            ))
+    else:
+        starts = [
+            sample_random_prefix_state(
+                reanalysis_min_prefix_plies, reanalysis_max_prefix_plies
+            )
+            for _ in range(num_diverse)
+        ]
+        for start in range(0, num_diverse, self_play_batch_size):
+            records.extend(play_reanalyzed_games_batched(
+                network,
+                starts[start:start + self_play_batch_size],
+                num_simulations=num_simulations,
+                device=device,
+            ))
         
     # 3. Network vs best checkpoint
     if num_vs_best > 0 and best_network is not None:
