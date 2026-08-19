@@ -11,8 +11,11 @@ import random
 from dataclasses import dataclass
 
 import torch
+from importlib import import_module
 
 from .self_play import MoveRecord, GameRecord
+
+outcome_mod = import_module('01_game.outcome')
 
 
 @dataclass
@@ -24,6 +27,7 @@ class TrainingBatch:
     state_tensors:      torch.Tensor  # (B, 7, 9, 9)
     policy_targets:     torch.Tensor  # (B, 81)
     opp_policy_targets: torch.Tensor  # (B, 81)
+    wdl_targets:        torch.Tensor  # (B,), win=0/draw=1/loss=2
     value_targets:      torch.Tensor  # (B, 1)
     score_targets:      torch.Tensor  # (B, 1)
     ownership_targets:  torch.Tensor  # (B, 9)
@@ -91,6 +95,9 @@ class ReplayBuffer:
             state_tensors=torch.stack([s.state_tensor for s in samples]),       # (B, 7, 9, 9)
             policy_targets=torch.stack([s.policy_target for s in samples]),     # (B, 81)
             opp_policy_targets=torch.stack([s.opp_policy_target for s in samples]),  # (B, 81)
+            wdl_targets=torch.tensor(
+                [s.wdl_target for s in samples], dtype=torch.long
+            ),
             value_targets=torch.tensor(
                 [[s.value_target] for s in samples], dtype=torch.float32       # (B, 1)
             ),
@@ -105,6 +112,11 @@ class ReplayBuffer:
     def __len__(self) -> int:
         """Return current number of positions in buffer."""
         return len(self._buffer)
+
+    @property
+    def records(self) -> tuple[MoveRecord, ...]:
+        """Read-only snapshot used by offline evaluation and calibration."""
+        return tuple(self._buffer)
 
     @property
     def is_ready(self, min_positions: int = 2560) -> bool:
@@ -134,6 +146,7 @@ class ReplayBuffer:
                 'opp_legal_mask': rec.opp_legal_mask,
                 'legal_mask': rec.legal_mask,
                 'current_player': rec.current_player,
+                'wdl_target': rec.wdl_target,
                 'value_target': rec.value_target,
                 'score_target': rec.score_target,
                 'ownership_target': rec.ownership_target,
@@ -154,20 +167,26 @@ class ReplayBuffer:
         data = torch.load(path, weights_only=False)
         buf = cls(capacity=data['capacity'])
         buf._position = data['position']
-        buf._buffer = [
-            MoveRecord(
+        records = []
+        for rec in data['records']:
+            wdl_target = rec.get(
+                'wdl_target',
+                outcome_mod.legacy_value_to_class(rec['value_target']),
+            )
+            records.append(MoveRecord(
                 state_tensor=rec['state_tensor'],
                 policy_target=rec['policy_target'],
                 opp_policy_target=rec['opp_policy_target'],
                 opp_legal_mask=rec['opp_legal_mask'],
                 legal_mask=rec['legal_mask'],
                 current_player=rec['current_player'],
-                value_target=rec['value_target'],
+                wdl_target=wdl_target,
+                # Normalize legacy -0.5 draws as well as deriving the new class.
+                value_target=outcome_mod.class_value(wdl_target),
                 score_target=rec['score_target'],
                 ownership_target=rec['ownership_target'],
-            )
-            for rec in data['records']
-        ]
+            ))
+        buf._buffer = records
         return buf
 
 
@@ -189,6 +208,7 @@ if __name__ == "__main__":
                 opp_legal_mask=torch.ones(81),
                 legal_mask=torch.ones(81),
                 current_player=1 if m % 2 == 0 else -1,
+                wdl_target=outcome_mod.WDL_WIN,
                 value_target=1.0,
                 score_target=0.5,
                 ownership_target=torch.zeros(9),
@@ -204,6 +224,7 @@ if __name__ == "__main__":
     batch = buf.sample(16)
     assert batch.state_tensors.shape == (16, 7, 9, 9)
     assert batch.policy_targets.shape == (16, 81)
+    assert batch.wdl_targets.shape == (16,)
     assert batch.value_targets.shape == (16, 1)
     assert batch.score_targets.shape == (16, 1)
     assert batch.ownership_targets.shape == (16, 9)

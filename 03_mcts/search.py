@@ -127,10 +127,10 @@ def run_mcts(
         # Phase 1: Select
         leaf = _select(root, c_puct)
         # Phase 2+3: Expand and Evaluate
-        value, ownership = _expand_and_evaluate(leaf, network, device)
+        value, wdl = _expand_and_evaluate(leaf, network, device)
 
         # Phase 4: Backup
-        _backup(leaf, value, ownership)
+        _backup(leaf, value, wdl)
 
     return root
 
@@ -193,7 +193,7 @@ def _expand_and_evaluate(
     node: MCTSNode,
     network: 'UltimateTTTNetwork',
     device: str,
-) -> float:
+) -> tuple[float, np.ndarray]:
     """Phase 2+3: Expand leaf node and return network value estimate.
 
     If node is terminal, return actual game outcome (+1, -1, or 0).
@@ -205,7 +205,7 @@ def _expand_and_evaluate(
         device: Compute device.
 
     Returns:
-        Tuple of (value, ownership) from current player's perspective.
+        Tuple of (value, wdl) from current player's perspective.
     """
     if node.is_terminal:
         # Return actual game result from the perspective of the current player
@@ -213,12 +213,15 @@ def _expand_and_evaluate(
         # the winner is from the previous player's perspective.
         if node.state.winner is None or node.state.winner == 0:
             value = 0.0
+            wdl = np.array([0.0, 1.0, 0.0], dtype=np.float32)
         else:
             value = float(node.state.winner * node.state.current_player)
+            if value > 0:
+                wdl = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+            else:
+                wdl = np.array([0.0, 0.0, 1.0], dtype=np.float32)
 
-        results = np.array(node.state.sub_board_results, dtype=np.float32)
-        ownership = (results * node.state.current_player + 1.0) / 2.0
-        return value, ownership
+        return value, wdl
 
     from importlib import import_module
     rules_mod = import_module('01_game.rules')
@@ -235,19 +238,26 @@ def _expand_and_evaluate(
 
     node.expand(probs, legal_moves)
 
-    # Return value estimate and ownership from current player's perspective
-    return net_output.win_value.item(), net_output.ownership.detach().cpu().numpy().flatten()
+    # Return zero-sum scalar and W/D/L from the current player's perspective.
+    return (
+        net_output.win_value.item(),
+        net_output.wdl_probs.detach().cpu().numpy().flatten(),
+    )
 
 
-def _backup(node: MCTSNode, value: float, ownership: np.ndarray) -> None:
-    """Phase 4: Backpropagate value and ownership up the tree.
+def _backup(
+    node: MCTSNode,
+    value: float,
+    wdl: np.ndarray | None = None,
+) -> None:
+    """Phase 4: Backpropagate value and W/D/L up the tree.
 
     Args:
         node: Leaf node where evaluation was performed.
         value: Value from the leaf node's current player's perspective.
-        ownership: (9,) ownership array from the leaf node's perspective.
+        wdl: (3,) W/D/L probabilities from the leaf perspective.
     """
-    node.backup(value, ownership)
+    node.backup(value, wdl)
 
 
 if __name__ == "__main__":
@@ -281,98 +291,121 @@ if __name__ == "__main__":
     print("Greedy selection: PASSED")
 
     print("\n=== Episode 9 PASSED ===")
-import math
-import numpy as np
-import torch
-from importlib import import_module
-from typing import List
+def _unpack_batched_eval(output):
+    """Normalize the supported batched evaluator protocols.
 
-search_mod = import_module('03_mcts.search')
-MCTSNode = search_mod.MCTSNode
-_select = search_mod._select
+    Preferred: return ``NetworkOutput``. A four-tuple ordered
+    ``(policy_logits, win_values, ownership, wdl_probs)`` is also accepted.
+    Scalar-only three-tuples are rejected because they cannot preserve draw
+    probability.
+    """
+    if hasattr(output, 'policy_logits'):
+        return (
+            output.policy_logits,
+            output.win_value,
+            output.ownership,
+            output.wdl_probs,
+        )
+    if isinstance(output, (tuple, list)) and len(output) == 4:
+        return output
+    raise ValueError(
+        "eval_func must return NetworkOutput or "
+        "(policy_logits, win_values, ownership, wdl_probs)"
+    )
 
-rules_mod = import_module('01_game.rules')
-policy_head_mod = import_module('02_network.policy_head')
-board_mod = import_module('01_game.board')
 
-get_legal_moves = rules_mod.get_legal_moves
-get_legal_move_mask = rules_mod.get_legal_move_mask
+def run_mcts_batched(
+    root_states,
+    eval_func,
+    num_simulations=1200,
+    c_puct=1.5,
+    dirichlet_alpha=0.3,
+    dirichlet_epsilon=0.0,
+):
+    """Run one synchronized MCTS simulation per root per evaluator batch.
 
-def apply_legal_mask(logits, legal_mask):
-    legal_mask = legal_mask.to(logits.device)
-    masked_logits = logits.masked_fill(~legal_mask.bool(), float('-inf'))
-    return torch.nn.functional.softmax(masked_logits, dim=-1)
+    This batches network leaf evaluation across independent games. Backup is
+    still performed exactly once per selected leaf and uses the same zero-sum
+    W/D/L perspective transform as :func:`run_mcts`.
+    """
+    from importlib import import_module
 
-def run_mcts_batched(root_states, eval_func, num_simulations=1200, c_puct=1.5, dirichlet_alpha=0.3, dirichlet_epsilon=0.0):
-    roots = [MCTSNode(state=s) for s in root_states]
-    epsilons = [dirichlet_epsilon] * len(root_states) if isinstance(dirichlet_epsilon, float) else dirichlet_epsilon
-    
-    unexpanded_roots = [r for r in roots if not r.is_terminal]
-    if unexpanded_roots:
-        state_tensors = [board_mod.encode_state(r.state) for r in unexpanded_roots]
-        batch_tensor = torch.stack(state_tensors)
-        policy_logits, values, ownerships = eval_func(batch_tensor)
-        
-        for i, root in enumerate(unexpanded_roots):
-            orig_idx = roots.index(root)
-            eps = epsilons[orig_idx]
+    rules_mod = import_module('01_game.rules')
+    board_mod = import_module('01_game.board')
+    policy_head_mod = import_module('02_network.policy_head')
+    get_legal_moves = rules_mod.get_legal_moves
+    get_legal_move_mask = rules_mod.get_legal_move_mask
+    apply_legal_mask = policy_head_mod.apply_legal_mask
+
+    roots = [MCTSNode(state=state) for state in root_states]
+    if isinstance(dirichlet_epsilon, (float, int)):
+        epsilons = [float(dirichlet_epsilon)] * len(roots)
+    else:
+        epsilons = list(dirichlet_epsilon)
+        if len(epsilons) != len(roots):
+            raise ValueError("dirichlet_epsilon must have one value per root")
+
+    indexed_roots = [(index, root) for index, root in enumerate(roots) if not root.is_terminal]
+    if indexed_roots:
+        batch = torch.stack([board_mod.encode_state(root.state) for _, root in indexed_roots])
+        policy_logits, _, _, _ = _unpack_batched_eval(eval_func(batch))
+        for batch_index, (root_index, root) in enumerate(indexed_roots):
             legal_moves = get_legal_moves(root.state)
             legal_mask = get_legal_move_mask(root.state)
-            
-            logits_i = policy_logits[i].unsqueeze(0)
-            probs = apply_legal_mask(logits_i, legal_mask).squeeze(0).cpu()
-
-            if eps > 0 and len(legal_moves) > 0:
+            probs = apply_legal_mask(policy_logits[batch_index], legal_mask).detach().cpu()
+            epsilon = epsilons[root_index]
+            if epsilon > 0 and legal_moves:
                 noise = np.random.dirichlet([dirichlet_alpha] * len(legal_moves))
-                noisy_probs = probs.clone()
-                for j, move in enumerate(legal_moves):
-                    noisy_probs[move] = (1 - eps) * probs[move].item() + eps * noise[j]
-                total = sum(noisy_probs[m].item() for m in legal_moves)
+                for noise_index, move in enumerate(legal_moves):
+                    probs[move] = (
+                        (1.0 - epsilon) * probs[move].item()
+                        + epsilon * noise[noise_index]
+                    )
+                total = sum(probs[move].item() for move in legal_moves)
                 if total > 0:
-                    for m in legal_moves:
-                        noisy_probs[m] = noisy_probs[m] / total
-                probs = noisy_probs
-
+                    probs /= total
             root.expand(probs, legal_moves)
 
     for _ in range(num_simulations):
         leaves = [_select(root, c_puct) for root in roots]
-        unexpanded_indices = [i for i, leaf in enumerate(leaves) if not leaf.is_terminal]
-        
-        if unexpanded_indices:
-            unexp_states = [leaves[i].state for i in unexpanded_indices]
-            batch_tensor = torch.stack([board_mod.encode_state(s) for s in unexp_states])
-            policy_logits, values, ownerships = eval_func(batch_tensor)
-            
-            for list_idx, original_idx in enumerate(unexpanded_indices):
-                leaf = leaves[original_idx]
+        evaluations: dict[int, tuple[float, np.ndarray]] = {}
+        nonterminal = [
+            (index, leaf) for index, leaf in enumerate(leaves) if not leaf.is_terminal
+        ]
+
+        if nonterminal:
+            batch = torch.stack([board_mod.encode_state(leaf.state) for _, leaf in nonterminal])
+            policy_logits, values, _, wdl_probs = _unpack_batched_eval(
+                eval_func(batch)
+            )
+            for batch_index, (leaf_index, leaf) in enumerate(nonterminal):
                 legal_moves = get_legal_moves(leaf.state)
                 legal_mask = get_legal_move_mask(leaf.state)
-                
-                logits_i = policy_logits[list_idx].unsqueeze(0)
-                probs = apply_legal_mask(logits_i, legal_mask).squeeze(0).cpu()
+                probs = apply_legal_mask(
+                    policy_logits[batch_index], legal_mask
+                ).detach().cpu()
                 leaf.expand(probs, legal_moves)
-                leaf.temp_v = float(values[list_idx].item())
-                leaf.temp_o = ownerships[list_idx].cpu().numpy()
+                evaluations[leaf_index] = (
+                    float(values[batch_index].item()),
+                    wdl_probs[batch_index].detach().cpu().numpy(),
+                )
 
-        for leaf in leaves:
+        for leaf_index, leaf in enumerate(leaves):
             if leaf.is_terminal:
-                if leaf.state.winner is None or leaf.state.winner == 0:
-                    leaf.temp_v = 0.0
-                    leaf.temp_o = np.zeros(9, dtype=np.float32)
+                winner = leaf.state.winner if leaf.state.winner is not None else 0
+                value = float(winner * leaf.state.current_player)
+                if value > 0:
+                    wdl = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+                elif value < 0:
+                    wdl = np.array([0.0, 0.0, 1.0], dtype=np.float32)
                 else:
-                    leaf.temp_v = float(leaf.state.winner)
-                    final_results = leaf.state.sub_board_results
-                    leaf.temp_o = np.array([(1.0 if final_results[j] == 1 else (-1.0 if final_results[j] == -1 else 0.0)) for j in range(9)])
+                    wdl = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+                evaluations[leaf_index] = (
+                    value,
+                    wdl,
+                )
 
-        for root, leaf in zip(roots, leaves):
-            current = leaf
-            cp = leaf.state.current_player
-            while current is not None:
-                val = leaf.temp_v if current.state.current_player == cp else -leaf.temp_v
-                own = leaf.temp_o if current.state.current_player == 1 else -leaf.temp_o
-                search_mod._backup(current, val, own)
-                current = current.parent
-                cp = -cp
-                
+            value, wdl = evaluations[leaf_index]
+            leaf.backup(value, wdl)
+
     return roots

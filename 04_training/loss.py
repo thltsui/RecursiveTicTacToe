@@ -31,7 +31,7 @@ class LossBreakdown:
     Attributes:
         total: Scalar — call .backward() on this.
         policy: Scalar — policy cross-entropy.
-        value: Scalar — value MSE.
+        value: Scalar — W/D/L cross-entropy (historical field name retained).
         score: Scalar — score margin MSE.
         ownership: Scalar — ownership BCE.
         opp_policy: Scalar — opponent policy cross-entropy.
@@ -83,11 +83,12 @@ def value_loss(
     predictions: torch.Tensor,
     targets: torch.Tensor,
 ) -> torch.Tensor:
-    """Mean squared error between predicted and actual game outcome.
+    """Legacy scalar MSE retained for analysis/backward compatibility.
 
     Formula: L = mean((z - v)^2)
 
-    Note: MSE is used (not cross-entropy) because value is continuous in [-1, 1].
+    The training objective uses :func:`wdl_loss`; new code should not use this
+    function to collapse draws into a scalar target.
 
     Args:
         predictions: Network output, shape (B, 1), tanh output.
@@ -97,6 +98,16 @@ def value_loss(
         Scalar mean loss over batch.
     """
     return F.mse_loss(predictions, targets)
+
+
+def wdl_loss(logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    """Cross-entropy for mutually exclusive win/draw/loss outcomes.
+
+    A categorical proper scoring rule preserves draw probability instead of
+    forcing it into a scalar or into one player's displayed win percentage.
+    Class order is win=0, draw=1, loss=2.
+    """
+    return F.cross_entropy(logits, targets.long())
 
 
 def score_loss(
@@ -157,7 +168,7 @@ def compute_total_loss(
         batch: Training batch with targets.
         lambda_policy: Weight for policy loss. Default: 1.0.
             Pass 0.0 during value pretraining to suppress policy learning.
-        lambda_value: Weight for value loss. Default: 3.0.
+        lambda_value: Weight for W/D/L cross-entropy. Default: 3.0.
         lambda_score: Weight for score loss. Default: 1.0.
         lambda_ownership: Weight for ownership loss. Default: 1.0.
         lambda_opp: Weight for opponent policy loss. Default: 0.15.
@@ -168,7 +179,7 @@ def compute_total_loss(
     l_policy = policy_loss(
         network_output.policy_logits, batch.policy_targets, batch.legal_masks
     )
-    l_value = value_loss(network_output.win_value, batch.value_targets)
+    l_value = wdl_loss(network_output.wdl_logits, batch.wdl_targets)
     l_score = score_loss(network_output.score_margin, batch.score_targets)
     l_ownership = ownership_loss(network_output.ownership, batch.ownership_targets)
     # Opponent policy targets come from the next ply state, so use its legal mask.
@@ -233,6 +244,7 @@ if __name__ == "__main__":
         state_tensors=x,
         policy_targets=torch.softmax(torch.randn(B, 81), dim=-1),
         opp_policy_targets=torch.softmax(torch.randn(B, 81), dim=-1),
+        wdl_targets=torch.ones(B, dtype=torch.long),
         value_targets=torch.zeros(B, 1),
         score_targets=torch.zeros(B, 1),
         ownership_targets=torch.rand(B, 9).round(),

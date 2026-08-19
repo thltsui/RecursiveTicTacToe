@@ -39,6 +39,8 @@ const statusText = document.getElementById('status-text');
 const statusIndicator = document.getElementById('status-indicator');
 const evalPctHuman = document.getElementById('eval-pct-human');
 const evalPctAi = document.getElementById('eval-pct-ai');
+const evalPctDraw = document.getElementById('eval-pct-draw');
+const evalCalibrationStatus = document.getElementById('eval-calibration-status');
 const evalBestHuman = document.getElementById('eval-best-human');
 const evalBestAi = document.getElementById('eval-best-ai');
 const evalBarFill = document.getElementById('eval-bar-fill');
@@ -622,23 +624,57 @@ function clearHeatmap() {
 
 // ── Analysis Panel ───────────────────────────────────────────────────────
 
+function roundedWdlPercentages(wdl) {
+    const values = [wdl.win, wdl.draw, wdl.loss].map((value) =>
+        Number.isFinite(value) && value >= 0 ? value : 0
+    );
+    const total = values.reduce((sum, value) => sum + value, 0);
+    const normalized = total > 0
+        ? values.map((value) => value / total)
+        : [0.5, 0.0, 0.5];
+    const scaled = normalized.map((value) => value * 100);
+    const rounded = scaled.map(Math.floor);
+    let remainder = 100 - rounded.reduce((sum, value) => sum + value, 0);
+    const order = [0, 1, 2].sort(
+        (left, right) => (scaled[right] - rounded[right]) - (scaled[left] - rounded[left])
+    );
+    for (let index = 0; index < remainder; index += 1) {
+        rounded[order[index % order.length]] += 1;
+    }
+    return { win: rounded[0], draw: rounded[1], loss: rounded[2] };
+}
+
 function updateAnalysisPanel(analysis) {
-    // Analysis is now from the HUMAN's perspective (current player).
-    // win_value: positive = human ahead, negative = AI ahead
-    const winVal = analysis.win_value;
-    const humanWinPct = Math.round((1 + winVal) / 2 * 100);
-    const aiWinPct = 100 - humanWinPct;
+    // Analysis is from the HUMAN's perspective (current player).  W/D/L are
+    // separate outcomes; a draw is never assigned to either side's win rate.
+    const wdl = analysis.wdl_probs || { win: 0.5, draw: 0.0, loss: 0.5 };
+    const percentages = roundedWdlPercentages(wdl);
+    const humanWinPct = percentages.win;
+    const drawPct = percentages.draw;
+    const aiWinPct = percentages.loss;
 
     // Dual eval columns
     evalPctHuman.textContent = humanWinPct + '%';
     evalPctAi.textContent = aiWinPct + '%';
+    evalPctDraw.textContent = drawPct + '%';
+    const calibrationLabels = {
+        temperature_scaled: 'Temp-scaled',
+        uncalibrated: 'Uncalibrated',
+        legacy_migrated_uncalibrated: 'Legacy estimate',
+    };
+    const estimateLabel = calibrationLabels[analysis.calibration_status] || 'Uncalibrated';
+    const sourceLabel = analysis.evaluation_source === 'mcts_recommended_move'
+        ? `${analysis.total_sims} sims`
+        : 'raw head';
+    evalCalibrationStatus.textContent = `${estimateLabel} · ${sourceLabel}`;
 
-    // Vertical balance bar (height = human's share, from bottom)
-    const barPct = Math.max(5, Math.min(95, humanWinPct));
+    // The balance bar is expected score only; the percentages above remain W/D/L.
+    const expectedScorePct = humanWinPct + drawPct / 2;
+    const barPct = Math.max(5, Math.min(95, expectedScorePct));
     evalBarFill.style.height = barPct + '%';
-    if (humanWinPct > 55) {
+    if (expectedScorePct > 55) {
         evalBarFill.style.background = 'linear-gradient(0deg, var(--cyan), rgba(6, 214, 160, 0.5))';
-    } else if (humanWinPct < 45) {
+    } else if (expectedScorePct < 45) {
         evalBarFill.style.background = 'linear-gradient(0deg, var(--magenta), rgba(239, 71, 111, 0.5))';
     } else {
         evalBarFill.style.background = 'linear-gradient(0deg, var(--cyan), var(--gold))';
@@ -688,6 +724,8 @@ function updateAnalysisPanel(analysis) {
 function resetAnalysisPanel() {
     evalPctHuman.textContent = '50%';
     evalPctAi.textContent = '50%';
+    evalPctDraw.textContent = '0%';
+    evalCalibrationStatus.textContent = 'Uncalibrated';
     evalBestHuman.textContent = '—';
     evalBestAi.textContent = '—';
     evalBarFill.style.height = '50%';

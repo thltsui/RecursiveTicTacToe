@@ -1,5 +1,11 @@
 # Value Bootstrap via Random Self-Play
 
+> **Superseded by [ADR-0001](docs/adr/0001-wdl-value-semantics-and-reanalysis.md).**
+> Random-play outcomes estimate the random policy, not the strong-play value
+> used by MCTS. The default training path must not use this proposal, and its
+> historical `-0.5` draw target is invalid under zero-sum negamax semantics.
+> This file remains only as a record of the earlier experiment.
+
 This document specifies how to bootstrap the value function before entering the
 main AlphaZero self-play loop, and why this is necessary and mathematically sound.
 

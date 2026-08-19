@@ -26,7 +26,8 @@ def main():
         # Self-play mix
         device='cpu',
         num_self_play=10,
-        num_vs_random=5,
+        num_vs_random=0,
+        num_reanalyzed=5,
         num_vs_best=5,
         num_simulations=200,
         temp_initial=2.0,

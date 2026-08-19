@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Stage 0+1 of value bootstrap: generate random games and pretrain the value head.
+"""Legacy random-policy representation bootstrap (disabled by default).
 
 Usage:
     python scripts/pretrain_value.py [--games N] [--batches N] [--checkpoint PATH]
 
-This script implements the two pre-AlphaZero stages:
+Random-vs-random outcomes estimate a different policy than MCTS self-play and
+must not be interpreted as calibrated strong-play W/D/L probabilities.  The
+default training loop no longer uses this path.  The acknowledgement flag is
+required to run the old representation-learning experiment intentionally.
+
+This script implements the two legacy pre-AlphaZero stages:
 
     Stage 0  Generate --games random-vs-random games and populate a ReplayBuffer.
     Stage 1  Train with lambda_policy=0 (value/score/ownership only) for --batches
@@ -119,6 +124,7 @@ def pretrain_value_head(
         states    = batch.state_tensors.to(device)
         pol_tgt   = batch.policy_targets.to(device)
         opp_tgt   = batch.opp_policy_targets.to(device)
+        wdl_tgt   = batch.wdl_targets.to(device)
         val_tgt   = batch.value_targets.to(device)
         score_tgt = batch.score_targets.to(device)
         own_tgt   = batch.ownership_targets.to(device)
@@ -129,6 +135,7 @@ def pretrain_value_head(
             state_tensors=states,
             policy_targets=pol_tgt,
             opp_policy_targets=opp_tgt,
+            wdl_targets=wdl_tgt,
             value_targets=val_tgt,
             score_targets=score_tgt,
             ownership_targets=own_tgt,
@@ -174,6 +181,14 @@ def pretrain_value_head(
 
 def main():
     parser = argparse.ArgumentParser(description="Pretrain value head on random-play data.")
+    parser.add_argument(
+        '--allow-random-policy-bootstrap',
+        action='store_true',
+        help=(
+            "Acknowledge that these are random-policy, uncalibrated targets. "
+            "They must not be mixed into the strong-play replay buffer."
+        ),
+    )
     parser.add_argument('--games',      type=int,   default=5_000,
                         help="Number of random-vs-random games to generate (default: 5000).")
     parser.add_argument('--batches',    type=int,   default=500,
@@ -193,6 +208,13 @@ def main():
                         help="Output checkpoint path.")
     parser.add_argument('--seed',       type=int,   default=42)
     args = parser.parse_args()
+
+    if not args.allow_random_policy_bootstrap:
+        parser.error(
+            "disabled by ADR-0001: random-game outcomes are not strong-play "
+            "W/D/L targets; pass --allow-random-policy-bootstrap only for the "
+            "legacy representation experiment"
+        )
 
     torch.manual_seed(args.seed)
 

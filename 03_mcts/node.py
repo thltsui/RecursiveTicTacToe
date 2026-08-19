@@ -34,8 +34,8 @@ class MCTSNode:
         N: Dict[int, int] — visit count per action.
         W: Dict[int, float] — total value per action.
         Q: Dict[int, float] — mean value = W[a] / N[a] (0 if N[a]==0).
-        O: Dict[int, np.ndarray] — total ownership vector per action.
-        Q_O: Dict[int, np.ndarray] — mean ownership vector per action.
+        WDL: Dict[int, np.ndarray] — accumulated W/D/L probabilities per action.
+        Q_WDL: Dict[int, np.ndarray] — mean W/D/L probabilities per action.
         P: Dict[int, float] — prior probability from network.
         visit_count: int — total visits to this node.
         is_expanded: bool — whether children have been created.
@@ -58,8 +58,8 @@ class MCTSNode:
         self.N: dict[int, int] = {}
         self.W: dict[int, float] = {}
         self.Q: dict[int, float] = {}
-        self.O: dict[int, np.ndarray] = {}
-        self.Q_O: dict[int, np.ndarray] = {}
+        self.WDL: dict[int, np.ndarray] = {}
+        self.Q_WDL: dict[int, np.ndarray] = {}
         self.P: dict[int, float] = {}
 
         self.visit_count: int = 0
@@ -142,6 +142,8 @@ class MCTSNode:
             self.N[move_idx] = 0
             self.W[move_idx] = 0.0
             self.Q[move_idx] = 0.0
+            self.WDL[move_idx] = np.zeros(3, dtype=np.float32)
+            self.Q_WDL[move_idx] = np.zeros(3, dtype=np.float32)
 
             child_state = apply_move(self.state, move_idx)
             child = MCTSNode(
@@ -154,18 +156,38 @@ class MCTSNode:
 
         self.is_expanded = True
 
-    def backup(self, value: float, ownership: np.ndarray | None = None) -> None:
-        """Backpropagate value and ownership up to the root.
+    def backup(
+        self,
+        value: float,
+        wdl: np.ndarray | None = None,
+    ) -> None:
+        """Backpropagate scalar and categorical outcomes up to the root.
 
-        Updates W, N, O, and Q_O for the edge that led to this node.
+        Updates W, Q, WDL, and Q_WDL for the edge that led to this node.
         Recursively calls parent.backup with inverted perspectives.
 
         Args:
             value: Outcome value from this node's perspective (+1 win, -1 loss).
-            ownership: (9,) sub-board win probabilities from this node's perspective.
+            wdl: (3,) win/draw/loss probabilities from this node's perspective.
         """
-        if ownership is None:
-            ownership = np.zeros(9, dtype=np.float32)
+        if wdl is None:
+            if value > 0:
+                wdl = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+            elif value < 0:
+                wdl = np.array([0.0, 0.0, 1.0], dtype=np.float32)
+            else:
+                wdl = np.array([0.0, 1.0, 0.0], dtype=np.float32)
+        else:
+            wdl = np.asarray(wdl, dtype=np.float32)
+            if wdl.shape != (3,) or not np.all(np.isfinite(wdl)):
+                raise ValueError("wdl must be a finite (3,) win/draw/loss vector")
+            total = float(wdl.sum())
+            if total <= 0:
+                raise ValueError("wdl probabilities must have positive mass")
+            wdl = wdl / total
+            # W/D/L is authoritative. This prevents a caller from backing up a
+            # scalar that disagrees with the categorical probabilities.
+            value = float(wdl[0] - wdl[2])
 
         self.visit_count += 1
 
@@ -178,19 +200,14 @@ class MCTSNode:
             n = self.parent.N[move]
             self.parent.Q[move] = self.parent.W[move] / n
 
-            # The ownership is from THIS node's perspective (probabilities 0.0 to 1.0).
-            # To the parent, the ownership probabilities are inverted: 1.0 - ownership
-            parent_ownership = 1.0 - ownership
-            
-            if move not in self.parent.O:
-                self.parent.O[move] = np.zeros(9, dtype=np.float32)
-            self.parent.O[move] += parent_ownership
-            self.parent.Q_O[move] = self.parent.O[move] / n
+            # Swap win and loss while preserving draw when changing perspective.
+            parent_wdl = wdl[[2, 1, 0]]
+            self.parent.WDL[move] += parent_wdl
+            self.parent.Q_WDL[move] = self.parent.WDL[move] / n
 
-            # Negate value and pass inverted ownership when going up
-            # Apply discount factor (gamma = 0.85) to dampen high-variance leaf values
-            # over long search horizons.
-            self.parent.backup(-value * 0.85, parent_ownership)
+            # Board-game outcomes are undiscounted.  Negation is the complete
+            # zero-sum perspective transform for the scalar expectation.
+            self.parent.backup(-value, parent_wdl)
 
     def get_visit_counts(self) -> dict[int, int]:
         """Return {move_idx: visit_count} for all visited children."""

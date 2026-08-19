@@ -74,7 +74,8 @@
                 <div class="analysis-panel" id="analysis-panel">
                     <h3>AI Analysis</h3>
 
-                    <!-- Evaluation: dual columns -->
+                    <div class="section-label">Estimated outcome after recommended move</div>
+                    <!-- Evaluation: W/D/L from the human-to-move perspective -->
                     <div class="eval-dual">
                         <div class="eval-col eval-col-human">
                             <div class="eval-side-label">Human (✕)</div>
@@ -97,6 +98,14 @@
 
                     <!-- Score margin -->
                     <div class="score-margin-section">
+                        <div class="metric-row">
+                            <span class="metric-label">Draw</span>
+                            <span class="metric-value eval-draw" id="eval-pct-draw">0%</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Estimate</span>
+                            <span class="metric-value" id="eval-calibration-status">Uncalibrated</span>
+                        </div>
                         <div class="metric-row">
                             <span class="metric-label">Score Margin</span>
                             <span class="metric-value" id="score-margin-value">0.00</span>

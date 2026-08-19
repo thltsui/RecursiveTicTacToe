@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 import pytest
 import torch
+import numpy as np
 
 from importlib import import_module
 board_mod = import_module('01_game.board')
@@ -62,6 +63,36 @@ class TestMCTSNode:
         assert root.W[legal[0]] == -1.0
         assert root.visit_count == 1
 
+    def test_backup_swaps_win_and_loss_but_preserves_draw(self):
+        state = board_mod.create_initial_state()
+        root = node_mod.MCTSNode(state=state)
+        legal = rules_mod.get_legal_moves(state)
+        root.expand(torch.ones(81) / 81.0, legal)
+
+        move = legal[0]
+        child = root.children[move]
+        child.backup(-0.6, wdl=np.array([0.1, 0.2, 0.7], dtype=np.float32))
+
+        assert root.Q[move] == pytest.approx(0.6)
+        assert root.Q_WDL[move] == pytest.approx(np.array([0.7, 0.2, 0.1]))
+
+    def test_backup_is_undiscounted_over_multiple_plies(self):
+        state = board_mod.create_initial_state()
+        root = node_mod.MCTSNode(state=state)
+        legal = rules_mod.get_legal_moves(state)
+        root.expand(torch.ones(81) / 81.0, legal)
+
+        first_move = legal[0]
+        child = root.children[first_move]
+        child_legal = rules_mod.get_legal_moves(child.state)
+        child.expand(torch.ones(81) / 81.0, child_legal)
+        grandchild = child.children[child_legal[0]]
+        grandchild.backup(1.0, wdl=np.array([1.0, 0.0, 0.0]))
+
+        assert child.Q[child_legal[0]] == pytest.approx(-1.0)
+        assert root.Q[first_move] == pytest.approx(1.0)
+        assert root.Q_WDL[first_move] == pytest.approx(np.array([1.0, 0.0, 0.0]))
+
 
 class TestMCTSSearch:
     def test_run_mcts(self):
@@ -80,6 +111,22 @@ class TestMCTSSearch:
         visits = root.get_visit_counts()
         most_visited = max(visits, key=visits.get)
         assert move == most_visited
+
+    def test_batched_search_uses_single_wdl_backup_per_simulation(self):
+        states = [board_mod.create_initial_state(), board_mod.create_initial_state()]
+        net = network_mod.UltimateTTTNetwork(channels=32, num_blocks=2)
+        roots = search_mod.run_mcts_batched(
+            states,
+            lambda batch: net(batch),
+            num_simulations=5,
+            dirichlet_epsilon=0.0,
+        )
+
+        for root in roots:
+            assert root.visit_count == 5
+            assert sum(root.get_visit_counts().values()) == 5
+            for move, visits in root.get_visit_counts().items():
+                assert root.Q_WDL[move].sum() == pytest.approx(1.0)
 
 
 class TestPolicyTarget:

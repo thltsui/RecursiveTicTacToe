@@ -1,0 +1,31 @@
+name: Unit tests
+
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - webapp
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install locked dependencies
+        run: uv sync --frozen
+      - name: Run unit tests
+        run: uv run pytest -q
+      - name: Check browser JavaScript syntax
+        run: node --check web_app/static/main.js

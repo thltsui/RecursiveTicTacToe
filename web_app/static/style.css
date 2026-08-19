@@ -605,6 +605,10 @@ body {
     color: var(--text-secondary);
 }
 
+.metric-value.eval-draw {
+    color: var(--gold);
+}
+
 /* ── Ownership Grid ───────────────────────────────────────────────────── */
 .ownership-section {
     display: flex;
@@ -1004,4 +1008,3 @@ body {
     background: rgba(255, 255, 255, 0.05);
     color: var(--text-primary);
 }
-

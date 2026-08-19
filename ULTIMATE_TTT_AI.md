@@ -1,5 +1,10 @@
 # Ultimate Tic-Tac-Toe AI — Claude Code Implementation Guide
 
+> **Value-semantics update:** the scalar-value sections in this historical
+> curriculum predate [ADR-0001](docs/adr/0001-wdl-value-semantics-and-reanalysis.md).
+> Runtime code now predicts explicit win/draw/loss probabilities, derives the
+> zero-sum search value as `P(win) - P(loss)`, and treats draws as zero.
+
 ## Project Overview
 
 This project builds a self-learning AI for Ultimate Tic-Tac-Toe using an AlphaZero-style

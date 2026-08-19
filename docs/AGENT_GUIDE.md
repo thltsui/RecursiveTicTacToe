@@ -13,7 +13,9 @@ This project implements a self-learning AI for Ultimate Tic-Tac-Toe using an **A
 ### Neural Network (`02_network/`)
 - **Architecture**: A PyTorch-based Convolutional/ResNet architecture that processes the 9x9 grid state and outputs:
   - **Policy**: A probability distribution over the 81 possible moves.
-  - **Value**: An evaluation of the board state from the current player's perspective (win/loss prediction).
+  - **Value**: Explicit win/draw/loss probabilities from the current player's
+    perspective. MCTS derives the zero-sum scalar as `P(win) - P(loss)`. See
+    [ADR-0001](adr/0001-wdl-value-semantics-and-reanalysis.md).
 
 ### Training Loop (`03_mcts/`, `04_training/`, `train.py`)
 - **Self-Play**: The AI plays thousands of games against itself using Monte Carlo Tree Search (MCTS) guided by the neural network's policy and value estimates.

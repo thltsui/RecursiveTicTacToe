@@ -86,6 +86,8 @@ class TransformerTTTNetwork(nn.Module):
         return NetworkOutput(
             policy_logits=policy_logits,
             opp_policy_logits=opp_policy_logits,
+            wdl_logits=value_out.wdl_logits,
+            wdl_probs=value_out.wdl_probs,
             win_value=value_out.win_value,
             score_margin=value_out.score_margin,
             ownership=value_out.ownership,
@@ -105,6 +107,8 @@ class TransformerTTTNetwork(nn.Module):
         return NetworkOutput(
             policy_logits=output.policy_logits.squeeze(0),
             opp_policy_logits=output.opp_policy_logits.squeeze(0),
+            wdl_logits=output.wdl_logits.squeeze(0),
+            wdl_probs=output.wdl_probs.squeeze(0),
             win_value=output.win_value.squeeze(0),
             score_margin=output.score_margin.squeeze(0),
             ownership=output.ownership.squeeze(0),

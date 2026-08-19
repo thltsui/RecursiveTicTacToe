@@ -8,7 +8,7 @@ interleave. Learning rate scheduling. Gradient clipping. Checkpointing.
 # | Loss          | At iter 0      | Healthy progress      | Red flags            |
 # |---------------|----------------|-----------------------|----------------------|
 # | L_policy      | ~4.4 (log 81)  | Steady decrease       | Plateau before i50   |
-# | L_value       | ~0.5-1.0       | Slow, noisy decrease  | Wild oscillation     |
+# | L_value (WDL) | ~1.1           | Slow, noisy decrease  | Wild oscillation     |
 # | L_score       | ~0.3-0.5       | Correlated w/ L_value | Opposite to L_value  |
 # | L_ownership   | ~0.6-0.7       | Fast early drop       | Not moving at all    |
 # | L_opp_policy  | ~4.4           | Tracks L_policy       | Diverging            |
@@ -46,7 +46,8 @@ class TrainingConfig:
     """
     # Self-play mix
     num_self_play:         int   = 10
-    num_vs_random:         int   = 5
+    num_vs_random:         int   = 0   # deprecated alias; converted to strong reanalysis
+    num_reanalyzed:        int   = 5
     num_vs_best:           int   = 5
     num_simulations:       int   = 1200
     temp_initial:          float = 2.0
@@ -57,6 +58,8 @@ class TrainingConfig:
     dirichlet_epsilon_boost: float = 0.65   # root epsilon for the first dirichlet_boost_plies moves
     dirichlet_boost_plies: int   = 8        # 0 disables boosting (flat dirichlet_epsilon)
     forced_opening_fraction: float = 0.0    # fraction of self-play games forced through forced_opening_pool
+    reanalysis_min_prefix_plies: int = 4
+    reanalysis_max_prefix_plies: int = 20
 
     # Training
     batch_size:            int   = 256
@@ -229,7 +232,11 @@ def train(config: TrainingConfig) -> None:
 
             # 1. SELF-PLAY
             network.eval()
-            print(f"[Iter {iteration}] Self-play: {config.num_self_play} SP, {config.num_vs_random} vs Rand, {config.num_vs_best} vs Best")
+            print(
+                f"[Iter {iteration}] Self-play: {config.num_self_play} SP, "
+                f"{config.num_reanalyzed + config.num_vs_random} reanalysed, "
+                f"{config.num_vs_best} vs Best"
+            )
             records = generate_mixed_batch(
                 network=network,
                 num_self_play=config.num_self_play,
@@ -245,6 +252,9 @@ def train(config: TrainingConfig) -> None:
                 dirichlet_epsilon_boost=config.dirichlet_epsilon_boost,
                 dirichlet_boost_plies=config.dirichlet_boost_plies,
                 forced_opening_fraction=config.forced_opening_fraction,
+                num_reanalyzed=config.num_reanalyzed,
+                reanalysis_min_prefix_plies=config.reanalysis_min_prefix_plies,
+                reanalysis_max_prefix_plies=config.reanalysis_max_prefix_plies,
                 device=config.device,
             )
             for record in records:
@@ -442,10 +452,20 @@ def train_step(
     from importlib import import_module
     loss_mod = import_module('04_training.loss')
 
+    # Any gradient update invalidates post-hoc calibration fitted to the old
+    # logits. Training always resumes from the native temperature of one.
+    value_head = getattr(network, 'value_head', None)
+    if value_head is not None and hasattr(value_head, 'wdl_temperature'):
+        with torch.no_grad():
+            value_head.wdl_temperature.fill_(1.0)
+            value_head.wdl_is_calibrated.fill_(False)
+            value_head.wdl_is_native.fill_(True)
+
     # 1. Move batch to device
     states = batch.state_tensors.to(device)       # (B, 7, 9, 9)
     policy_tgt = batch.policy_targets.to(device)   # (B, 81)
     opp_tgt = batch.opp_policy_targets.to(device)  # (B, 81)
+    wdl_tgt = batch.wdl_targets.to(device)          # (B,)
     value_tgt = batch.value_targets.to(device)     # (B, 1)
     score_tgt = batch.score_targets.to(device)     # (B, 1)
     own_tgt = batch.ownership_targets.to(device)   # (B, 9)
@@ -458,6 +478,7 @@ def train_step(
         state_tensors=states,
         policy_targets=policy_tgt,
         opp_policy_targets=opp_tgt,
+        wdl_targets=wdl_tgt,
         value_targets=value_tgt,
         score_targets=score_tgt,
         ownership_targets=own_tgt,
@@ -476,14 +497,6 @@ def train_step(
         lambda_ownership=config.lambda_ownership,
         lambda_opp=config.lambda_opp,
     )
-
-    # 3b. Add manual L2 regularization penalty to Value Head weights and biases
-    value_head_l2 = 0.0
-    for name, param in network.named_parameters():
-        if 'value_head' in name:
-            value_head_l2 += param.pow(2).sum()
-    breakdown.total = breakdown.total + 0.02 * value_head_l2
-
 
     # 4. Backward pass
     optimizer.zero_grad()
@@ -569,7 +582,13 @@ def load_checkpoint(
     checkpoint = torch.load(path, weights_only=False)
     network.load_state_dict(checkpoint['network_state_dict'])
 
-    if optimizer is not None and 'optimizer_state_dict' in checkpoint:
+    value_head = getattr(network, 'value_head', None)
+    legacy_value_head = bool(
+        value_head is not None
+        and hasattr(value_head, 'wdl_is_native')
+        and not value_head.wdl_is_native.item()
+    )
+    if optimizer is not None and 'optimizer_state_dict' in checkpoint and not legacy_value_head:
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         # Move optimizer state to correct device
         device = next(network.parameters()).device
@@ -577,11 +596,16 @@ def load_checkpoint(
             for k, v in state.items():
                 if isinstance(v, torch.Tensor):
                     state[k] = v.to(device)
+    elif optimizer is not None and legacy_value_head:
+        # val_out changed from one row to three.  Historical Adam moments have
+        # the old shape and must not be attached to the migrated parameters.
+        print("  Migrated legacy scalar value head; optimizer state was reset")
 
     return {
         'iteration': checkpoint.get('iteration', 0),
         'elo': checkpoint.get('elo', 1000.0),
         'timestamp': checkpoint.get('timestamp', 0),
+        'legacy_value_head_migrated': legacy_value_head,
     }
 
 
@@ -604,6 +628,7 @@ if __name__ == "__main__":
         state_tensors=torch.randn(B, 7, 9, 9),
         policy_targets=torch.softmax(torch.randn(B, 81), dim=-1),
         opp_policy_targets=torch.softmax(torch.randn(B, 81), dim=-1),
+        wdl_targets=torch.ones(B, dtype=torch.long),
         value_targets=torch.zeros(B, 1),
         score_targets=torch.zeros(B, 1),
         ownership_targets=torch.rand(B, 9).round(),

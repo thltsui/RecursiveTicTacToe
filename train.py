@@ -32,7 +32,8 @@ def main():
         # Self-play mix
         device='cpu',  # CPU used for MCTS to avoid MPS overhead for batch=1
         num_self_play=10,
-        num_vs_random=5,
+        num_vs_random=0,
+        num_reanalyzed=5,
         num_vs_best=5,
         num_simulations=1200,
         temp_initial=2.0,
@@ -94,7 +95,7 @@ def main():
     print("=" * 60)
     print(f"  Device:       {config.device} (MCTS) + MPS (training)")
     print(f"  Network:      {config.channels}ch x {config.num_blocks} blocks ({n_params:,} params)")
-    print(f"  Self-play:    {config.num_self_play} SP + {config.num_vs_random} vs Rand + {config.num_vs_best} vs Best ({config.num_simulations} sims/move)")
+    print(f"  Self-play:    {config.num_self_play} SP + {config.num_reanalyzed} reanalysed + {config.num_vs_best} vs Best ({config.num_simulations} sims/move)")
     print(f"  Training:     {config.batches_per_iteration} batches x B={config.batch_size}")
     print(f"  Arena:        every {config.arena_every_n} iters, {config.arena_games} games")
     print(f"  Buffer:       {config.buffer_capacity:,} capacity")

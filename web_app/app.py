@@ -206,6 +206,8 @@ def load_network(checkpoint_path=None):
         net = TransformerTTTNetwork(channels=channels, num_blocks=num_blocks)
         net.load_state_dict(state_dict)
         net.eval()
+        if not bool(net.value_head.wdl_is_native.item()):
+            print("  WARNING: migrated legacy scalar value head; W/D/L is uncalibrated")
         print(f"  Loaded TRANSFORMER: {channels}ch x {num_blocks}layers, iteration {iteration}")
     else:
         # ── Classic CNN (ResNet) architecture ─────────────────────────────
@@ -215,6 +217,8 @@ def load_network(checkpoint_path=None):
         net = network_mod.UltimateTTTNetwork(channels=channels, num_blocks=num_blocks)
         net.load_state_dict(state_dict)
         net.eval()
+        if not bool(net.value_head.wdl_is_native.item()):
+            print("  WARNING: migrated legacy scalar value head; W/D/L is uncalibrated")
         print(f"  Loaded CNN: {channels}ch x {num_blocks}blocks, iteration {iteration}")
 
     return net
@@ -266,7 +270,7 @@ def get_analysis(state, sims, add_noise=False):
         opp_list = opp_probs.detach().cpu().tolist()
 
         # Value outputs
-        win_value = net_output.win_value.item()
+        raw_wdl = net_output.wdl_probs.detach().cpu().numpy().astype(np.float64)
         score_margin = net_output.score_margin.item()
 
         # Ownership (9 sub-boards)
@@ -310,27 +314,51 @@ def get_analysis(state, sims, add_noise=False):
             'prior': round(policy_list[m], 4),
         })
 
-    # Calculate smoothed root expected value from MCTS Q-values
-    # root.W is evaluated from the root node's current player's perspective
-    if root.N:
-        smoothed_win_value = sum(root.W.values()) / total_visits
-        # For smoothed ownership, average the Q_O values weighted by visits
-        if hasattr(root, 'O') and root.O:
-            smoothed_ownership = np.sum(list(root.O.values()), axis=0) / total_visits
-        else:
-            smoothed_ownership = ownership
+    # Report the W/D/L estimate for the move MCTS recommends, rather than an
+    # average over deliberately explored bad moves.  This is the relevant
+    # strong-play continuation for the player to move.
+    evaluation_source = 'raw_network'
+    search_wdl = raw_wdl
+    if top_moves_raw:
+        best_move = top_moves_raw[0][0]
+        best_wdl = root.Q_WDL.get(best_move)
+        if best_wdl is not None and float(np.sum(best_wdl)) > 0:
+            search_wdl = np.asarray(best_wdl, dtype=np.float64)
+            search_wdl = search_wdl / np.sum(search_wdl)
+            evaluation_source = 'mcts_recommended_move'
+
+    search_win_value = float(search_wdl[0] - search_wdl[2])
+    value_head = network.value_head
+    if not bool(value_head.wdl_is_native.item()):
+        calibration_status = 'legacy_migrated_uncalibrated'
+    elif bool(value_head.wdl_is_calibrated.item()):
+        calibration_status = 'temperature_scaled'
     else:
-        smoothed_win_value = win_value
-        smoothed_ownership = ownership
+        calibration_status = 'uncalibrated'
 
     return {
         'policy_probs': policy_list,
         'opp_policy_probs': opp_list,
         'mcts_visits': mcts_visits,
         'mcts_q_values': mcts_q_values,
-        'win_value': float(smoothed_win_value),
+        # Kept for API compatibility; this is P(win) - P(loss), not P(win).
+        'win_value': search_win_value,
+        'wdl_probs': {
+            'win': float(search_wdl[0]),
+            'draw': float(search_wdl[1]),
+            'loss': float(search_wdl[2]),
+        },
+        'raw_wdl_probs': {
+            'win': float(raw_wdl[0]),
+            'draw': float(raw_wdl[1]),
+            'loss': float(raw_wdl[2]),
+        },
+        'evaluation_source': evaluation_source,
+        'calibration_status': calibration_status,
         'score_margin': float(score_margin),
-        'ownership': smoothed_ownership.tolist() if isinstance(smoothed_ownership, np.ndarray) else smoothed_ownership,
+        # Ownership is intentionally raw: P(current player owns board) is not
+        # complementary across perspectives when a sub-board can draw.
+        'ownership': ownership,
         'top_moves': top_moves,
         'total_sims': int(total_visits),
     }, root

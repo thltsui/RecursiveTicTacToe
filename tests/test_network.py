@@ -65,6 +65,8 @@ class TestValueHead:
         head = value_mod.ValueHead(in_channels=64)
         x = torch.randn(2, 64, 9, 9)
         out = head(x)
+        assert out.wdl_logits.shape == (2, 3)
+        assert out.wdl_probs.shape == (2, 3)
         assert out.win_value.shape == (2, 1)
         assert out.score_margin.shape == (2, 1)
         assert out.ownership.shape == (2, 9)
@@ -73,6 +75,9 @@ class TestValueHead:
         head = value_mod.ValueHead(in_channels=64)
         x = torch.randn(4, 64, 9, 9)
         out = head(x)
+        assert torch.allclose(out.wdl_probs.sum(dim=-1), torch.ones(4), atol=1e-6)
+        expected_value = out.wdl_probs[:, 0] - out.wdl_probs[:, 2]
+        assert torch.allclose(out.win_value.squeeze(-1), expected_value)
         assert out.win_value.min() >= -1.0
         assert out.win_value.max() <= 1.0
         assert out.ownership.min() >= 0.0
@@ -86,6 +91,8 @@ class TestFullNetwork:
         out = net(x)
         assert out.policy_logits.shape == (4, 81)
         assert out.opp_policy_logits.shape == (4, 81)
+        assert out.wdl_logits.shape == (4, 3)
+        assert out.wdl_probs.shape == (4, 3)
         assert out.win_value.shape == (4, 1)
         assert out.score_margin.shape == (4, 1)
         assert out.ownership.shape == (4, 9)
@@ -95,6 +102,8 @@ class TestFullNetwork:
         state = board_mod.create_initial_state()
         out = net.predict(state)
         assert out.policy_logits.shape == (81,)
+        assert out.wdl_logits.shape == (3,)
+        assert out.wdl_probs.shape == (3,)
         assert out.win_value.shape == (1,)
         assert out.ownership.shape == (9,)
 
@@ -105,3 +114,23 @@ class TestFullNetwork:
         loss = out.policy_logits.sum() + out.win_value.sum()
         loss.backward()
         assert x.grad is not None
+
+    def test_legacy_scalar_value_head_checkpoint_migrates(self):
+        head = value_mod.ValueHead(in_channels=32)
+        state = head.state_dict()
+        old_weight = torch.randn(1, head.val_out.in_features)
+        old_bias = torch.randn(1)
+        state['val_out.weight'] = old_weight.clone()
+        state['val_out.bias'] = old_bias.clone()
+        del state['wdl_temperature']
+        del state['wdl_is_calibrated']
+        del state['wdl_is_native']
+
+        migrated = value_mod.ValueHead(in_channels=32)
+        migrated.load_state_dict(state, strict=True)
+
+        assert migrated.loaded_legacy_scalar_head
+        assert migrated.val_out.weight.shape == (3, head.val_out.in_features)
+        assert torch.allclose(migrated.val_out.weight[1], torch.zeros_like(old_weight[0]))
+        assert not migrated.wdl_is_calibrated.item()
+        assert not migrated.wdl_is_native.item()

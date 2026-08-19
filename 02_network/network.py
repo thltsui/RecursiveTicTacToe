@@ -30,12 +30,16 @@ class NetworkOutput:
     Attributes:
         policy_logits: (B, 81) or (81,) — raw policy logits for current player.
         opp_policy_logits: (B, 81) or (81,) — raw policy logits for opponent (auxiliary).
-        win_value: (B, 1) or (1,) — predicted win probability, range [-1, 1].
+        wdl_logits: (B, 3) or (3,) — raw win/draw/loss logits.
+        wdl_probs: (B, 3) or (3,) — win/draw/loss probabilities.
+        win_value: (B, 1) or (1,) — P(win) - P(loss), range [-1, 1].
         score_margin: (B, 1) or (1,) — predicted score margin, range [-1, 1].
         ownership: (B, 9) or (9,) — per-sub-board ownership probability, range [0, 1].
     """
     policy_logits:     torch.Tensor  # (B, 81) or (81,)
     opp_policy_logits: torch.Tensor  # (B, 81) or (81,)
+    wdl_logits:        torch.Tensor  # (B, 3)  or (3,)
+    wdl_probs:         torch.Tensor  # (B, 3)  or (3,)
     win_value:         torch.Tensor  # (B, 1)  or (1,)
     score_margin:      torch.Tensor  # (B, 1)  or (1,)
     ownership:         torch.Tensor  # (B, 9)  or (9,)
@@ -48,7 +52,7 @@ class UltimateTTTNetwork(nn.Module):
         - Input conv: 7 channels -> C channels
         - Trunk: num_blocks residual blocks, each with global pooling
         - Policy head: outputs current + opponent move distributions
-        - Value head: outputs win probability + auxiliary targets
+        - Value head: outputs win/draw/loss probabilities + auxiliary targets
 
     Default hyperparameters (justified by game complexity vs AlphaZero):
         - channels (C) = 128   (AlphaZero uses 256, our game is simpler)
@@ -105,6 +109,8 @@ class UltimateTTTNetwork(nn.Module):
         return NetworkOutput(
             policy_logits=policy_logits,
             opp_policy_logits=opp_policy_logits,
+            wdl_logits=value_out.wdl_logits,
+            wdl_probs=value_out.wdl_probs,
             win_value=value_out.win_value,
             score_margin=value_out.score_margin,
             ownership=value_out.ownership,
@@ -142,6 +148,8 @@ class UltimateTTTNetwork(nn.Module):
         return NetworkOutput(
             policy_logits=output.policy_logits.squeeze(0),          # (81,)
             opp_policy_logits=output.opp_policy_logits.squeeze(0),  # (81,)
+            wdl_logits=output.wdl_logits.squeeze(0),                # (3,)
+            wdl_probs=output.wdl_probs.squeeze(0),                  # (3,)
             win_value=output.win_value.squeeze(0),                  # (1,)
             score_margin=output.score_margin.squeeze(0),            # (1,)
             ownership=output.ownership.squeeze(0),                  # (9,)
@@ -165,6 +173,8 @@ if __name__ == "__main__":
     # 4. Assert all output shapes
     assert out.policy_logits.shape == (4, 81), f"Policy: {out.policy_logits.shape}"
     assert out.opp_policy_logits.shape == (4, 81), f"Opp policy: {out.opp_policy_logits.shape}"
+    assert out.wdl_logits.shape == (4, 3), f"WDL logits: {out.wdl_logits.shape}"
+    assert out.wdl_probs.shape == (4, 3), f"WDL probs: {out.wdl_probs.shape}"
     assert out.win_value.shape == (4, 1), f"Win value: {out.win_value.shape}"
     assert out.score_margin.shape == (4, 1), f"Score margin: {out.score_margin.shape}"
     assert out.ownership.shape == (4, 9), f"Ownership: {out.ownership.shape}"
