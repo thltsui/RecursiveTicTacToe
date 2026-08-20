@@ -374,16 +374,29 @@ def train(config: TrainingConfig) -> None:
     if checkpoints:
         latest_cp = checkpoints[-1]
         try:
-            meta = load_checkpoint(latest_cp, network, optimizer)
+            meta = load_checkpoint(latest_cp, network, optimizer, scheduler)
             iteration = meta['iteration']
             best_network_state = clone_state_dict(network.state_dict())
             last_arena_win_rate = float(meta.get('elo', 0.0))
             # Load existing metrics log if available
             metrics_path = os.path.join(config.checkpoint_dir, 'training_metrics.json')
             if os.path.exists(metrics_path):
-                with open(metrics_path) as f:
-                    metrics_log = json.load(f)
-                total_games = metrics_log[-1].get('games_played', 0) if metrics_log else 0
+                try:
+                    metrics_log, total_games, orphaned_path = reconcile_metrics_log(
+                        metrics_path, iteration
+                    )
+                    if orphaned_path is not None:
+                        print(
+                            "  Archived metrics newer than the durable "
+                            f"checkpoint: {orphaned_path}"
+                        )
+                except Exception as metrics_error:
+                    print(
+                        "  Failed to reconcile metrics log: "
+                        f"{metrics_error} — continuing with empty metrics"
+                    )
+                    metrics_log = []
+                    total_games = 0
             print(f"  Resumed from: {latest_cp} (iteration {iteration})")
         except Exception as e:
             print(f"  Failed to load checkpoint: {e} — starting fresh")
@@ -518,6 +531,11 @@ def train(config: TrainingConfig) -> None:
                 'time_seconds': time.time() - iter_start,
             }
 
+            # Advance the learning-rate schedule once for the completed
+            # optimizer phase before any checkpoint is written. This makes a
+            # checkpoint represent the complete state at ``iteration``.
+            scheduler.step()
+
             # 3. EVALUATE vs random opponent AND best model
             if iteration % config.arena_every_n == 0:
                 try:
@@ -581,11 +599,14 @@ def train(config: TrainingConfig) -> None:
                         best_net.load_state_dict(best_network_state)
                         patience_counter = 0  # reset patience
                         
-                        path = save_checkpoint(network, optimizer, iteration,
-                                               score_rate, config.checkpoint_dir)
+                        path = save_checkpoint(
+                            network, optimizer, iteration, score_rate,
+                            config.checkpoint_dir, scheduler=scheduler,
+                        )
                         save_checkpoint(network, optimizer, iteration,
                                         score_rate, config.checkpoint_dir,
-                                        filename_override='best_model.pt')
+                                        filename_override='best_model.pt',
+                                        scheduler=scheduler)
                         print(
                             f"  New best network (score={score_rate:.3f})! "
                             f"Patience reset. Saved to {path}"
@@ -603,8 +624,10 @@ def train(config: TrainingConfig) -> None:
 
             # Periodic checkpoint save (regardless of arena)
             if iteration % config.checkpoint_every_n == 0:
-                path = save_checkpoint(network, optimizer, iteration,
-                                       last_arena_win_rate, config.checkpoint_dir)
+                path = save_checkpoint(
+                    network, optimizer, iteration, last_arena_win_rate,
+                    config.checkpoint_dir, scheduler=scheduler,
+                )
                 print(f"  Periodic checkpoint saved to {path}")
                 # Persist replay buffer alongside checkpoint
                 buffer.save_to_file(buffer_path)
@@ -620,11 +643,12 @@ def train(config: TrainingConfig) -> None:
             with open(metrics_path, 'w') as f:
                 json.dump(metrics_log, f, indent=2)
 
-            scheduler.step()
-
     except KeyboardInterrupt:
         print(f"\nTraining interrupted at iteration {iteration}")
-        path = save_checkpoint(network, optimizer, iteration, last_arena_win_rate, config.checkpoint_dir)
+        path = save_checkpoint(
+            network, optimizer, iteration, last_arena_win_rate,
+            config.checkpoint_dir, scheduler=scheduler,
+        )
         print(f"Final checkpoint saved to {path}")
 
 
@@ -736,6 +760,91 @@ def clone_state_dict(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Ten
     return {k: v.detach().cpu().clone() for k, v in state_dict.items()}
 
 
+def _write_json_atomically(path: str | os.PathLike[str], payload: Any) -> None:
+    """Replace a JSON file only after its complete replacement is durable."""
+    destination = Path(path)
+    temporary = destination.with_name(f".{destination.name}.tmp")
+    with temporary.open('w', encoding='utf-8') as handle:
+        json.dump(payload, handle, indent=2)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, destination)
+
+
+def reconcile_metrics_log(
+    metrics_path: str | os.PathLike[str],
+    checkpoint_iteration: int,
+) -> tuple[list[dict], int, str | None]:
+    """Align metrics with a durable checkpoint and archive newer rows.
+
+    A process can finish one or more iterations after the most recent periodic
+    checkpoint and then be killed. Those metric rows describe weights and
+    replay positions that no longer exist after resume. Keeping them in the
+    canonical log would create duplicate iteration numbers and an incorrect
+    game count.
+    """
+    path = Path(metrics_path)
+    with path.open(encoding='utf-8') as handle:
+        loaded = json.load(handle)
+    if not isinstance(loaded, list):
+        raise ValueError("training metrics must be a JSON list")
+
+    durable: list[dict] = []
+    orphaned: list[dict] = []
+    for index, entry in enumerate(loaded):
+        if not isinstance(entry, dict) or not isinstance(entry.get('iteration'), int):
+            raise ValueError(f"invalid training metric at index {index}")
+        if entry['iteration'] <= checkpoint_iteration:
+            durable.append(entry)
+        else:
+            orphaned.append(entry)
+
+    orphaned_path: str | None = None
+    if orphaned:
+        stem = f"training_metrics_orphaned_after_iter{checkpoint_iteration:05d}"
+        archive = path.with_name(f"{stem}.json")
+        suffix = 1
+        while archive.exists():
+            archive = path.with_name(f"{stem}_{suffix}.json")
+            suffix += 1
+        _write_json_atomically(
+            archive,
+            {
+                'checkpoint_iteration': checkpoint_iteration,
+                'orphaned_metrics': orphaned,
+            },
+        )
+        _write_json_atomically(path, durable)
+        orphaned_path = str(archive)
+
+    total_games = durable[-1].get('games_played', 0) if durable else 0
+    return durable, int(total_games), orphaned_path
+
+
+def _reconstruct_scheduler_state(
+    scheduler: torch.optim.lr_scheduler.LRScheduler,
+    iteration: int,
+) -> None:
+    """Reconstruct scheduler state for checkpoints created before it was saved."""
+    if isinstance(scheduler, torch.optim.lr_scheduler.StepLR):
+        factor = scheduler.gamma ** (iteration // scheduler.step_size)
+        learning_rates = [base_lr * factor for base_lr in scheduler.base_lrs]
+        for param_group, learning_rate in zip(
+            scheduler.optimizer.param_groups, learning_rates
+        ):
+            param_group['lr'] = learning_rate
+    else:
+        learning_rates = [
+            float(group['lr']) for group in scheduler.optimizer.param_groups
+        ]
+
+    state = scheduler.state_dict()
+    state['last_epoch'] = iteration
+    state['_step_count'] = iteration + 1
+    state['_last_lr'] = learning_rates
+    scheduler.load_state_dict(state)
+
+
 def save_checkpoint(
     network: nn.Module,
     optimizer: torch.optim.Optimizer,
@@ -743,6 +852,7 @@ def save_checkpoint(
     elo: float,
     checkpoint_dir: str,
     filename_override: str = "",
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
 ) -> str:
     """Save network and optimizer state.
 
@@ -754,6 +864,7 @@ def save_checkpoint(
         iteration: Current iteration number.
         elo: Current Elo rating.
         checkpoint_dir: Directory to save to.
+        scheduler: Optional learning-rate scheduler to persist.
 
     Returns:
         Path to saved checkpoint file.
@@ -777,6 +888,8 @@ def save_checkpoint(
     training_config = getattr(network, 'training_config', None)
     if training_config is not None:
         payload['training_config'] = training_config
+    if scheduler is not None:
+        payload['scheduler_state_dict'] = scheduler.state_dict()
     torch.save(payload, path)
 
     return path
@@ -786,6 +899,7 @@ def load_checkpoint(
     path: str,
     network: nn.Module,
     optimizer: torch.optim.Optimizer | None = None,
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
 ) -> dict:
     """Load network (and optionally optimizer) from checkpoint.
 
@@ -793,11 +907,15 @@ def load_checkpoint(
         path: Path to checkpoint file.
         network: Network to load weights into.
         optimizer: Optional optimizer to load state into.
+        scheduler: Optional learning-rate scheduler to restore.
 
     Returns:
         Dict with 'iteration', 'elo', 'timestamp'.
     """
-    checkpoint = torch.load(path, weights_only=False)
+    # Checkpoints may contain Adam moments last used on MPS or CUDA. Always
+    # deserialize on CPU first so recovery also works when that accelerator is
+    # unavailable; optimizer tensors are moved to the network device below.
+    checkpoint = torch.load(path, weights_only=False, map_location='cpu')
     model_factory_mod = __import__(
         '02_network.model_factory', fromlist=['model_config_from_checkpoint']
     )
@@ -830,11 +948,29 @@ def load_checkpoint(
         # the old shape and must not be attached to the migrated parameters.
         print("  Migrated legacy scalar value head; optimizer state was reset")
 
+    scheduler_state_restored = False
+    scheduler_state_reconstructed = False
+    if scheduler is not None:
+        if 'scheduler_state_dict' in checkpoint:
+            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            scheduler_state_restored = True
+        else:
+            _reconstruct_scheduler_state(
+                scheduler, int(checkpoint.get('iteration', 0))
+            )
+            scheduler_state_reconstructed = True
+            print(
+                "  Checkpoint has no scheduler state; reconstructed it at "
+                f"iteration {checkpoint.get('iteration', 0)}"
+            )
+
     return {
         'iteration': checkpoint.get('iteration', 0),
         'elo': checkpoint.get('elo', 1000.0),
         'timestamp': checkpoint.get('timestamp', 0),
         'legacy_value_head_migrated': legacy_value_head,
+        'scheduler_state_restored': scheduler_state_restored,
+        'scheduler_state_reconstructed': scheduler_state_reconstructed,
     }
 
 

@@ -94,8 +94,19 @@ def test_checkpoint_stores_and_uses_authoritative_model_config(tmp_path):
     )
     network = model_factory_mod.create_network(config)
     optimizer = torch.optim.Adam(network.parameters(), lr=1e-3)
+    scheduler = torch.optim.lr_scheduler.StepLR(
+        optimizer, step_size=5, gamma=0.5
+    )
+    for _ in range(7):
+        optimizer.step()
+        scheduler.step()
     path = trainer_mod.save_checkpoint(
-        network, optimizer, iteration=7, elo=1234.0, checkpoint_dir=str(tmp_path)
+        network,
+        optimizer,
+        iteration=7,
+        elo=1234.0,
+        checkpoint_dir=str(tmp_path),
+        scheduler=scheduler,
     )
     checkpoint = torch.load(path, weights_only=False, map_location='cpu')
     restored, restored_config = model_factory_mod.create_network_from_checkpoint(
@@ -103,10 +114,100 @@ def test_checkpoint_stores_and_uses_authoritative_model_config(tmp_path):
     )
 
     assert checkpoint['checkpoint_format_version'] == 2
+    assert checkpoint['scheduler_state_dict'] == scheduler.state_dict()
     assert restored_config == config
     assert restored.model_config == config.to_dict()
     for name, value in network.state_dict().items():
         assert torch.equal(value, restored.state_dict()[name])
+
+
+def test_checkpoint_restores_scheduler_state(tmp_path):
+    config = model_factory_mod.ModelConfig(
+        architecture='cnn', channels=16, num_blocks=1
+    )
+    network = model_factory_mod.create_network(config)
+    optimizer = torch.optim.Adam(network.parameters(), lr=1e-3)
+    scheduler = torch.optim.lr_scheduler.StepLR(
+        optimizer, step_size=5, gamma=0.5
+    )
+    for _ in range(7):
+        optimizer.step()
+        scheduler.step()
+    path = trainer_mod.save_checkpoint(
+        network,
+        optimizer,
+        iteration=7,
+        elo=0.0,
+        checkpoint_dir=str(tmp_path),
+        scheduler=scheduler,
+    )
+
+    restored_network = model_factory_mod.create_network(config)
+    restored_optimizer = torch.optim.Adam(restored_network.parameters(), lr=1e-3)
+    restored_scheduler = torch.optim.lr_scheduler.StepLR(
+        restored_optimizer, step_size=5, gamma=0.5
+    )
+    metadata = trainer_mod.load_checkpoint(
+        path, restored_network, restored_optimizer, restored_scheduler
+    )
+
+    assert metadata['scheduler_state_restored'] is True
+    assert metadata['scheduler_state_reconstructed'] is False
+    assert restored_scheduler.state_dict() == scheduler.state_dict()
+    assert restored_optimizer.param_groups[0]['lr'] == pytest.approx(5e-4)
+
+
+def test_legacy_checkpoint_reconstructs_step_scheduler(tmp_path):
+    config = model_factory_mod.ModelConfig(
+        architecture='cnn', channels=16, num_blocks=1
+    )
+    network = model_factory_mod.create_network(config)
+    optimizer = torch.optim.Adam(network.parameters(), lr=1e-3)
+    path = trainer_mod.save_checkpoint(
+        network,
+        optimizer,
+        iteration=55,
+        elo=0.0,
+        checkpoint_dir=str(tmp_path),
+    )
+
+    restored_network = model_factory_mod.create_network(config)
+    restored_optimizer = torch.optim.Adam(restored_network.parameters(), lr=1e-3)
+    restored_scheduler = torch.optim.lr_scheduler.StepLR(
+        restored_optimizer, step_size=50, gamma=0.5
+    )
+    metadata = trainer_mod.load_checkpoint(
+        path, restored_network, restored_optimizer, restored_scheduler
+    )
+
+    assert metadata['scheduler_state_restored'] is False
+    assert metadata['scheduler_state_reconstructed'] is True
+    assert restored_scheduler.last_epoch == 55
+    assert restored_optimizer.param_groups[0]['lr'] == pytest.approx(5e-4)
+
+
+def test_resume_archives_metrics_newer_than_checkpoint(tmp_path):
+    metrics_path = tmp_path / 'training_metrics.json'
+    metrics_path.write_text(
+        '[\n'
+        '  {"iteration": 14, "games_played": 140},\n'
+        '  {"iteration": 15, "games_played": 150},\n'
+        '  {"iteration": 16, "games_played": 160}\n'
+        ']\n',
+        encoding='utf-8',
+    )
+
+    durable, total_games, archive_path = trainer_mod.reconcile_metrics_log(
+        metrics_path, checkpoint_iteration=15
+    )
+
+    assert [entry['iteration'] for entry in durable] == [14, 15]
+    assert total_games == 150
+    assert archive_path is not None
+    assert os.path.exists(archive_path)
+    with open(archive_path, encoding='utf-8') as handle:
+        assert '"iteration": 16' in handle.read()
+    assert '"iteration": 16' not in metrics_path.read_text(encoding='utf-8')
 
 
 def test_legacy_checkpoint_config_is_inferred_only_when_metadata_is_absent():
