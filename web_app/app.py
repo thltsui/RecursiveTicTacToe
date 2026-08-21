@@ -62,8 +62,9 @@ socketio = SocketIO(app, cors_allowed_origins="*", message_queue=redis_url)
 
 network = None
 network_metadata = {}
-# Fixed simulation levels remain until deployment benchmarks justify time budgets.
-DIFFICULTY_SIMS = {'easy': 80, 'medium': 200, 'hard': 400}
+# The lightweight Transformer leaves enough latency headroom to give hard mode
+# a materially deeper search while keeping easy and medium responsive.
+DIFFICULTY_SIMS = {'easy': 80, 'medium': 200, 'hard': 800}
 
 
 def exploration_noise_for_difficulty(difficulty: str) -> bool:

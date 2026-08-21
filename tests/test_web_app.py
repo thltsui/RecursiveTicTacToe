@@ -19,6 +19,14 @@ def test_only_easy_mode_adds_search_noise():
     assert web_mod.exploration_noise_for_difficulty('hard') is False
 
 
+def test_hard_mode_uses_the_deeper_search_budget():
+    assert web_mod.DIFFICULTY_SIMS == {
+        'easy': 80,
+        'medium': 200,
+        'hard': 800,
+    }
+
+
 def test_model_info_endpoint_reports_loaded_checkpoint_metadata():
     original = web_mod.network_metadata
     expected = {
