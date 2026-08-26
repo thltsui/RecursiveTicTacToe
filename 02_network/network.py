@@ -68,8 +68,18 @@ class UltimateTTTNetwork(nn.Module):
 
     INPUT_CHANNELS = 7  # 7-channel board encoding
 
-    def __init__(self, channels: int = 128, num_blocks: int = 8):
+    def __init__(
+        self,
+        channels: int = 128,
+        num_blocks: int = 8,
+        value_channels: int = 32,
+        value_hidden_size: int = 512,
+        value_feature_size: int = 128,
+    ):
         super().__init__()
+
+        self.channels = channels
+        self.num_blocks = num_blocks
 
         # Input convolution: 7 -> C channels
         self.input_conv = nn.Conv2d(self.INPUT_CHANNELS, channels, kernel_size=3,
@@ -83,7 +93,12 @@ class UltimateTTTNetwork(nn.Module):
 
         # Dual heads
         self.policy_head = PolicyHead(channels)
-        self.value_head = ValueHead(channels)
+        self.value_head = ValueHead(
+            channels,
+            conv_channels=value_channels,
+            hidden_size=value_hidden_size,
+            feature_size=value_feature_size,
+        )
 
     def forward(self, x: torch.Tensor) -> NetworkOutput:
         """Forward pass through the full network.

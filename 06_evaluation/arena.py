@@ -32,8 +32,14 @@ class ArenaResult:
 
     @property
     def new_is_better(self) -> bool:
-        """Return True if new network should replace old."""
-        return self.win_rate > self.win_rate_threshold
+        """Return True when the neutral-draw match score clears the gate."""
+        return self.score_rate > self.win_rate_threshold
+
+    @property
+    def score_rate(self) -> float:
+        """Chess-style score: win=1, draw=0.5, loss=0."""
+        total = self.wins + self.losses + self.draws
+        return (self.wins + 0.5 * self.draws) / total if total > 0 else 0.0
 
 
 def play_single_game(

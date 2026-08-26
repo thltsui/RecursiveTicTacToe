@@ -1,3 +1,4 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 checkpoints/best_ever_model.pt filter=lfs diff=lfs merge=lfs -text
+checkpoints/transformer_best.pt filter=lfs diff=lfs merge=lfs -text

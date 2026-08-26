@@ -65,6 +65,7 @@ const waitingShareUrl = document.getElementById('waiting-share-url');
 const btnWaitingCopyUrl = document.getElementById('btn-waiting-copy-url');
 const btnCancelWaiting = document.getElementById('btn-cancel-waiting');
 const difficultySelector = document.getElementById('difficulty-selector');
+const modelInfo = document.getElementById('model-info');
 
 // ── Initialization ───────────────────────────────────────────────────────
 
@@ -130,12 +131,41 @@ buildOwnershipGrid();
 
 // Check if joining from a room link
 window.addEventListener('DOMContentLoaded', () => {
+    loadModelInfo();
     const urlParams = new URLSearchParams(window.location.search);
     const roomParam = urlParams.get('room');
     if (roomParam) {
         startMultiplayerGame(roomParam);
     }
 });
+
+async function loadModelInfo() {
+    try {
+        const response = await fetch('/api/model_info');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const info = await response.json();
+        const architecture = info.architecture === 'transformer'
+            ? 'Lightweight Transformer'
+            : 'Residual CNN';
+        const calibration = info.wdl_calibrated
+            ? 'calibrated W/D/L'
+            : 'uncalibrated W/D/L';
+        const releaseStatus = info.release_status === 'accepted'
+            ? 'accepted release'
+            : 'experimental portfolio trial';
+        modelInfo.textContent = [
+            architecture,
+            `${info.channels}ch × ${info.layers} layers`,
+            `iteration ${info.iteration}`,
+            `${Number(info.parameters).toLocaleString()} parameters`,
+            calibration,
+            releaseStatus,
+        ].join(' · ');
+    } catch (error) {
+        console.error('Could not load model information', error);
+        modelInfo.textContent = 'Self-play AI · model information unavailable';
+    }
+}
 
 // ── Board Construction ───────────────────────────────────────────────────
 

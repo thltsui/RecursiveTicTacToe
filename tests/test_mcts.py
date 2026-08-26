@@ -15,6 +15,7 @@ node_mod = import_module('03_mcts.node')
 search_mod = import_module('03_mcts.search')
 policy_target_mod = import_module('03_mcts.policy_target')
 network_mod = import_module('02_network.network')
+self_play_mod = import_module('04_training.self_play')
 
 
 class TestMCTSNode:
@@ -127,6 +128,42 @@ class TestMCTSSearch:
             assert sum(root.get_visit_counts().values()) == 5
             for move, visits in root.get_visit_counts().items():
                 assert root.Q_WDL[move].sum() == pytest.approx(1.0)
+
+    def test_batched_self_play_evaluates_multiple_games_together(self):
+        net = network_mod.UltimateTTTNetwork(
+            channels=8,
+            num_blocks=1,
+            value_channels=2,
+            value_hidden_size=16,
+            value_feature_size=8,
+        ).eval()
+        observed_batch_sizes = []
+
+        def remember_batch(_module, args, _output):
+            observed_batch_sizes.append(args[0].shape[0])
+
+        handle = net.register_forward_hook(remember_batch)
+        try:
+            records = self_play_mod.play_self_play_games_batched(
+                net,
+                num_games=2,
+                num_simulations=1,
+                temp_initial=0.0,
+                temp_min=0.0,
+                dirichlet_epsilon=0.0,
+                dirichlet_epsilon_boost=0.0,
+            )
+        finally:
+            handle.remove()
+
+        assert len(records) == 2
+        assert max(observed_batch_sizes) == 2
+        for game in records:
+            assert game.game_length == len(game.moves)
+            assert game.moves
+            assert all(move.wdl_target in (0, 1, 2) for move in game.moves)
+            assert all(move.policy_target.sum().item() == pytest.approx(1.0)
+                       for move in game.moves)
 
 
 class TestPolicyTarget:

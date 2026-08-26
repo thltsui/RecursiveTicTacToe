@@ -29,19 +29,12 @@ from flask_cors import CORS
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from importlib import import_module
 
-# Transformer network support
-try:
-    from transformer.transformer_network import TransformerTTTNetwork
-    _transformer_available = True
-except ImportError:
-    _transformer_available = False
-
 # Configure torch for thread safety and optimal inference performance
 torch.set_num_threads(2)
 
 board_mod = import_module('01_game.board')
 rules_mod = import_module('01_game.rules')
-network_mod = import_module('02_network.network')
+model_factory_mod = import_module('02_network.model_factory')
 search_mod = import_module('03_mcts.search')
 policy_head_mod = import_module('02_network.policy_head')
 
@@ -68,8 +61,15 @@ socketio = SocketIO(app, cors_allowed_origins="*", message_queue=redis_url)
 # ── Global state ────────────────────────────────────────────────────────────
 
 network = None
-# Number of MCTS simulations optimized for web responsiveness with the 192ch x 10block CNN
-DIFFICULTY_SIMS = {'easy': 80, 'medium': 200, 'hard': 400}
+network_metadata = {}
+# The lightweight Transformer leaves enough latency headroom to give hard mode
+# a materially deeper search while keeping easy and medium responsive.
+DIFFICULTY_SIMS = {'easy': 80, 'medium': 200, 'hard': 800}
+
+
+def exploration_noise_for_difficulty(difficulty: str) -> bool:
+    """Use deployment-time root noise only for intentionally easier play."""
+    return difficulty == 'easy'
 
 def c_puct_for_phase(move_count: int) -> float:
     """Exploration boost at both ends of the game -- helps PUCT surface
@@ -130,15 +130,6 @@ def save_room(room_id, room_data):
     else:
         rooms_cache[room_id] = room_data
 
-def _is_transformer_checkpoint(state_dict: dict) -> bool:
-    """Detect if a state dict belongs to a TransformerTTTNetwork.
-
-    Transformer checkpoints have a patch_embed layer and pos_embed tensor
-    rather than an input_conv layer.
-    """
-    return 'pos_embed' in state_dict or any('patch_embed' in k for k in state_dict)
-
-
 def load_network(checkpoint_path=None):
     """Load the best available network (Transformer or CNN).
 
@@ -156,7 +147,7 @@ def load_network(checkpoint_path=None):
 
         # 1. Prefer Transformer model if available
         transformer_best = os.path.join(PROJECT_ROOT, 'checkpoints/transformer_best.pt')
-        if _transformer_available and os.path.exists(transformer_best):
+        if os.path.exists(transformer_best):
             cp_path = transformer_best
 
         # 2. Fall back to legacy CNN champion
@@ -191,35 +182,36 @@ def load_network(checkpoint_path=None):
         print("ERROR: No checkpoint found!")
         return None
 
+    global network_metadata
+
     print(f"Loading checkpoint: {cp_path}")
     checkpoint = torch.load(cp_path, weights_only=False, map_location='cpu')
-    state_dict = checkpoint['network_state_dict']
     iteration = checkpoint.get('iteration', '?')
 
-    if _transformer_available and _is_transformer_checkpoint(state_dict):
-        # ── Transformer architecture ──────────────────────────────────────
-        # Detect channels from pos_embed shape: (1, 81, channels)
-        channels = state_dict['pos_embed'].shape[-1] if 'pos_embed' in state_dict else 128
-        # Count transformer encoder layers by self_attn projection weights
-        num_blocks = sum(1 for k in state_dict if 'transformer.layers.' in k and k.endswith('.self_attn.in_proj_weight'))
-        num_blocks = num_blocks or 4
-        net = TransformerTTTNetwork(channels=channels, num_blocks=num_blocks)
-        net.load_state_dict(state_dict)
-        net.eval()
-        if not bool(net.value_head.wdl_is_native.item()):
-            print("  WARNING: migrated legacy scalar value head; W/D/L is uncalibrated")
-        print(f"  Loaded TRANSFORMER: {channels}ch x {num_blocks}layers, iteration {iteration}")
-    else:
-        # ── Classic CNN (ResNet) architecture ─────────────────────────────
-        conv_keys = [k for k in state_dict if 'input_conv.weight' in k]
-        channels = state_dict[conv_keys[0]].shape[0] if conv_keys else 128
-        num_blocks = sum(1 for k in state_dict if '.conv1.weight' in k and 'trunk' in k)
-        net = network_mod.UltimateTTTNetwork(channels=channels, num_blocks=num_blocks)
-        net.load_state_dict(state_dict)
-        net.eval()
-        if not bool(net.value_head.wdl_is_native.item()):
-            print("  WARNING: migrated legacy scalar value head; W/D/L is uncalibrated")
-        print(f"  Loaded CNN: {channels}ch x {num_blocks}blocks, iteration {iteration}")
+    net, model_config = model_factory_mod.create_network_from_checkpoint(checkpoint)
+    net.eval()
+    if not bool(net.value_head.wdl_is_native.item()):
+        print("  WARNING: migrated legacy scalar value head; W/D/L is uncalibrated")
+    depth_label = 'layers' if model_config.architecture == 'transformer' else 'blocks'
+    metadata_source = 'metadata' if checkpoint.get('model_config') else 'legacy inference'
+    print(
+        f"  Loaded {model_config.architecture.upper()}: "
+        f"{model_config.channels}ch x {model_config.num_blocks}{depth_label}, "
+        f"iteration {iteration} ({metadata_source})"
+    )
+
+    network_metadata = {
+        'checkpoint': os.path.basename(cp_path),
+        'architecture': model_config.architecture,
+        'channels': model_config.channels,
+        'layers': model_config.num_blocks,
+        'iteration': iteration,
+        'parameters': sum(parameter.numel() for parameter in net.parameters()),
+        'wdl_calibrated': bool(net.value_head.wdl_is_calibrated.item()),
+        'release_status': checkpoint.get(
+            'release_status', 'experimental_portfolio_trial'
+        ),
+    }
 
     return net
 
@@ -371,6 +363,12 @@ def index():
     return send_from_directory('static', 'index.html')
 
 
+@app.route('/api/model_info')
+def model_info():
+    """Describe the exact checkpoint serving this process."""
+    return jsonify(network_metadata)
+
+
 @app.route('/api/new_game', methods=['POST'])
 def new_game():
     """Start a new game. Optionally set difficulty."""
@@ -387,7 +385,7 @@ def new_game():
 
     # If human is player -1, AI goes first
     if human_player == -1:
-        ai_result = do_ai_move(state, sims)
+        ai_result = do_ai_move(state, sims, difficulty)
         response = ai_result
         response['difficulty'] = difficulty
         response['num_sims'] = sims
@@ -416,7 +414,7 @@ def human_move():
         return jsonify(state_to_dict(state))
 
     # AI responds
-    ai_result = do_ai_move(state, sims)
+    ai_result = do_ai_move(state, sims, difficulty)
     return jsonify(ai_result)
 
 
@@ -437,7 +435,7 @@ def analyze_position():
     return jsonify(result)
 
 
-def do_ai_move(state, sims):
+def do_ai_move(state, sims, difficulty='medium'):
     """AI decides its move, then analyzes the resulting position for the human.
 
     Flow:
@@ -448,8 +446,13 @@ def do_ai_move(state, sims):
     4. Return: new state + AI's move + human-perspective analysis
     """
     # Step 1: AI decides its move (internal, not surfaced)
-    # Add inference noise so the AI explores creative 2nd/3rd best pathways
-    ai_analysis, root = get_analysis(state, sims, add_noise=True)
+    # Easy intentionally explores. Medium and Hard remain deterministic so
+    # their larger simulation budgets translate into stronger play.
+    ai_analysis, root = get_analysis(
+        state,
+        sims,
+        add_noise=exploration_noise_for_difficulty(difficulty),
+    )
     ai_move = search_mod.select_move(root, temperature=0.0)
 
     # Step 2: Apply AI's move

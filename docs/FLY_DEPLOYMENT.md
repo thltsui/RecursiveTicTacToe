@@ -42,6 +42,13 @@ fly redis attach <your-redis-name> -a <your-app-name>
 ```
 
 ### 3. Deploy the Application
+Promote only a candidate that has passed the acceptance process in
+`docs/adr/0002-json-configured-lite-transformer.md`. Copy the calibrated
+artifact to `checkpoints/transformer_best.pt` and add it through Git LFS. The
+Docker build includes that promoted Transformer and retains
+`best_ever_model.pt` as the rollback model; the web loader prefers the
+Transformer when both exist.
+
 Now that Redis is hooked up, you can deploy the actual code!
 ```bash
 fly deploy

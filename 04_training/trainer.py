@@ -29,7 +29,9 @@ import json
 import os
 import sys
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Mapping
 
 import torch
 import torch.nn as nn
@@ -60,6 +62,7 @@ class TrainingConfig:
     forced_opening_fraction: float = 0.0    # fraction of self-play games forced through forced_opening_pool
     reanalysis_min_prefix_plies: int = 4
     reanalysis_max_prefix_plies: int = 20
+    self_play_batch_size: int = 1
 
     # Training
     batch_size:            int   = 256
@@ -93,14 +96,212 @@ class TrainingConfig:
     train_device:          str   = ''          # device for gradient updates (default: same as device)
 
     # Network
+    architecture:          str   = 'cnn'
     channels:              int   = 128
     num_blocks:            int   = 8
+    num_heads:             int   = 4
+    ffn_multiplier:        int   = 4
+    dropout:               float = 0.1
+    position_encoding:     str   = 'absolute'
+    value_channels:        int   = 32
+    value_hidden_size:     int   = 512
+    value_feature_size:    int   = 128
 
     # Reproducibility
     seed:                  int   = 42
 
     # Value bootstrap
     pretrain_checkpoint:   str   = ''   # path to pretrain_value.pt; loaded at iter 0 if set
+
+    def model_config(self):
+        model_factory_mod = __import__(
+            '02_network.model_factory', fromlist=['ModelConfig']
+        )
+        return model_factory_mod.ModelConfig(
+            architecture=self.architecture,
+            channels=self.channels,
+            num_blocks=self.num_blocks,
+            num_heads=self.num_heads,
+            ffn_multiplier=self.ffn_multiplier,
+            dropout=self.dropout,
+            position_encoding=self.position_encoding,
+            value_channels=self.value_channels,
+            value_hidden_size=self.value_hidden_size,
+            value_feature_size=self.value_feature_size,
+        )
+
+    def validate(self) -> None:
+        self.model_config()  # ModelConfig owns architecture validation.
+        positive = (
+            'num_simulations', 'batch_size', 'batches_per_iteration',
+            'arena_every_n', 'arena_games', 'max_iterations',
+            'early_stopping_patience', 'buffer_capacity',
+            'checkpoint_every_n', 'self_play_batch_size',
+        )
+        for name in positive:
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be positive")
+        nonnegative = ('num_self_play', 'num_vs_random', 'num_reanalyzed', 'num_vs_best')
+        for name in nonnegative:
+            if getattr(self, name) < 0:
+                raise ValueError(f"{name} must be non-negative")
+        if not 0.0 <= self.forced_opening_fraction <= 1.0:
+            raise ValueError("forced_opening_fraction must be in [0, 1]")
+        if self.reanalysis_min_prefix_plies < 0:
+            raise ValueError("reanalysis_min_prefix_plies must be non-negative")
+        if self.reanalysis_max_prefix_plies < self.reanalysis_min_prefix_plies:
+            raise ValueError(
+                "reanalysis_max_prefix_plies must be >= reanalysis_min_prefix_plies"
+            )
+        if self.buffer_capacity < self.batch_size:
+            raise ValueError("buffer_capacity must be at least batch_size")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the canonical nested JSON representation."""
+        return {
+            'config_version': 1,
+            'model': self.model_config().to_dict(),
+            'self_play': {
+                key: getattr(self, key) for key in _CONFIG_SECTIONS['self_play']
+            },
+            'optimization': {
+                key: getattr(self, key) for key in _CONFIG_SECTIONS['optimization']
+            },
+            'loss': {key: getattr(self, key) for key in _CONFIG_SECTIONS['loss']},
+            'evaluation': {
+                key: getattr(self, key) for key in _CONFIG_SECTIONS['evaluation']
+            },
+            'replay_buffer': {'capacity': self.buffer_capacity},
+            'checkpointing': {
+                'directory': self.checkpoint_dir,
+                'every_n': self.checkpoint_every_n,
+                'pretrain_checkpoint': self.pretrain_checkpoint,
+            },
+            'runtime': {
+                key: getattr(self, key) for key in _CONFIG_SECTIONS['runtime']
+            },
+        }
+
+
+_CONFIG_SECTIONS: dict[str, tuple[str, ...]] = {
+    'self_play': (
+        'num_self_play', 'num_vs_random', 'num_reanalyzed', 'num_vs_best',
+        'num_simulations', 'temp_initial', 'temp_decay_rate', 'temp_min',
+        'dirichlet_alpha', 'dirichlet_epsilon', 'dirichlet_epsilon_boost',
+        'dirichlet_boost_plies', 'forced_opening_fraction',
+        'reanalysis_min_prefix_plies', 'reanalysis_max_prefix_plies',
+        'self_play_batch_size',
+    ),
+    'optimization': (
+        'batch_size', 'batches_per_iteration', 'learning_rate', 'weight_decay',
+        'grad_clip_norm', 'lr_decay_every_n', 'lr_decay_gamma',
+    ),
+    'loss': ('lambda_value', 'lambda_score', 'lambda_ownership', 'lambda_opp'),
+    'evaluation': (
+        'arena_every_n', 'arena_games', 'win_rate_threshold', 'max_iterations',
+        'early_stopping_patience',
+    ),
+    'runtime': ('device', 'train_device', 'seed'),
+}
+
+
+def _copy_known_fields(
+    destination: dict[str, Any],
+    section_name: str,
+    raw: Mapping[str, Any],
+) -> None:
+    allowed = set(_CONFIG_SECTIONS[section_name])
+    unknown = sorted(set(raw) - allowed)
+    if unknown:
+        raise ValueError(
+            f"unknown {section_name} config field(s): {', '.join(unknown)}"
+        )
+    destination.update(raw)
+
+
+def training_config_from_dict(raw: Mapping[str, Any]) -> TrainingConfig:
+    """Build a validated training config from its nested JSON representation."""
+    data = dict(raw)
+    version = data.pop('config_version', 1)
+    if version != 1:
+        raise ValueError(f"unsupported training config_version {version}; expected 1")
+    data.pop('name', None)  # Human-readable run label; directory remains explicit.
+    allowed_sections = {
+        'model', 'self_play', 'optimization', 'loss', 'evaluation',
+        'replay_buffer', 'checkpointing', 'runtime',
+    }
+    unknown_sections = sorted(set(data) - allowed_sections)
+    if unknown_sections:
+        raise ValueError(
+            f"unknown training config section(s): {', '.join(unknown_sections)}"
+        )
+    if 'model' not in data:
+        raise ValueError("training config requires a model section")
+
+    model_factory_mod = __import__('02_network.model_factory', fromlist=['ModelConfig'])
+    model = model_factory_mod.ModelConfig.from_dict(data['model'])
+    values: dict[str, Any] = {
+        'architecture': model.architecture,
+        'channels': model.channels,
+        'num_blocks': model.num_blocks,
+        'num_heads': model.num_heads,
+        'ffn_multiplier': model.ffn_multiplier,
+        'dropout': model.dropout,
+        'position_encoding': model.position_encoding,
+        'value_channels': model.value_channels,
+        'value_hidden_size': model.value_hidden_size,
+        'value_feature_size': model.value_feature_size,
+    }
+    for section in _CONFIG_SECTIONS:
+        if section in data:
+            section_raw = data[section]
+            if not isinstance(section_raw, Mapping):
+                raise ValueError(f"{section} must be a JSON object")
+            _copy_known_fields(values, section, section_raw)
+
+    replay = data.get('replay_buffer', {})
+    if set(replay) - {'capacity'}:
+        unknown = ', '.join(sorted(set(replay) - {'capacity'}))
+        raise ValueError(f"unknown replay_buffer config field(s): {unknown}")
+    if 'capacity' in replay:
+        values['buffer_capacity'] = replay['capacity']
+
+    checkpointing = data.get('checkpointing', {})
+    checkpoint_keys = {'directory', 'every_n', 'pretrain_checkpoint'}
+    if set(checkpointing) - checkpoint_keys:
+        unknown = ', '.join(sorted(set(checkpointing) - checkpoint_keys))
+        raise ValueError(f"unknown checkpointing config field(s): {unknown}")
+    if 'directory' in checkpointing:
+        values['checkpoint_dir'] = checkpointing['directory']
+    if 'every_n' in checkpointing:
+        values['checkpoint_every_n'] = checkpointing['every_n']
+    if 'pretrain_checkpoint' in checkpointing:
+        values['pretrain_checkpoint'] = checkpointing['pretrain_checkpoint']
+
+    config = TrainingConfig(**values)
+    config.validate()
+    return config
+
+
+def load_training_config(path: str | os.PathLike[str]) -> TrainingConfig:
+    """Load one JSON config file.  Loading never starts training."""
+    config_path = Path(path)
+    with config_path.open(encoding='utf-8') as handle:
+        raw = json.load(handle)
+    if not isinstance(raw, dict):
+        raise ValueError("training config root must be a JSON object")
+    return training_config_from_dict(raw)
+
+
+def resolve_train_device(requested: str) -> str:
+    """Resolve ``auto`` only when a run is explicitly started."""
+    if requested != 'auto':
+        return requested
+    if torch.backends.mps.is_available():
+        return 'mps'
+    if torch.cuda.is_available():
+        return 'cuda'
+    return 'cpu'
 
 
 def train(config: TrainingConfig) -> None:
@@ -113,26 +314,28 @@ def train(config: TrainingConfig) -> None:
         config: Training configuration.
     """
     from importlib import import_module
-    network_mod = import_module('02_network.network')
+    model_factory_mod = import_module('02_network.model_factory')
     self_play_mod = import_module('04_training.self_play')
     replay_buffer_mod = import_module('04_training.replay_buffer')
     loss_mod = import_module('04_training.loss')
 
-    UltimateTTTNetwork = network_mod.UltimateTTTNetwork
-    play_self_play_game = self_play_mod.play_self_play_game
     generate_mixed_batch = self_play_mod.generate_mixed_batch
     ReplayBuffer = replay_buffer_mod.ReplayBuffer
+
+    config.validate()
+    model_config = config.model_config()
 
     # Set seed
     torch.manual_seed(config.seed)
 
     # Resolve train device
-    train_device = config.train_device if config.train_device else config.device
+    train_device = resolve_train_device(
+        config.train_device if config.train_device else config.device
+    )
 
     # Create network
-    network = UltimateTTTNetwork(
-        channels=config.channels, num_blocks=config.num_blocks
-    ).to(config.device)
+    network = model_factory_mod.create_network(model_config).to(config.device)
+    network.training_config = config.to_dict()
 
     optimizer = torch.optim.Adam(
         network.parameters(),
@@ -171,16 +374,29 @@ def train(config: TrainingConfig) -> None:
     if checkpoints:
         latest_cp = checkpoints[-1]
         try:
-            meta = load_checkpoint(latest_cp, network, optimizer)
+            meta = load_checkpoint(latest_cp, network, optimizer, scheduler)
             iteration = meta['iteration']
             best_network_state = clone_state_dict(network.state_dict())
             last_arena_win_rate = float(meta.get('elo', 0.0))
             # Load existing metrics log if available
             metrics_path = os.path.join(config.checkpoint_dir, 'training_metrics.json')
             if os.path.exists(metrics_path):
-                with open(metrics_path) as f:
-                    metrics_log = json.load(f)
-                total_games = metrics_log[-1].get('games_played', 0) if metrics_log else 0
+                try:
+                    metrics_log, total_games, orphaned_path = reconcile_metrics_log(
+                        metrics_path, iteration
+                    )
+                    if orphaned_path is not None:
+                        print(
+                            "  Archived metrics newer than the durable "
+                            f"checkpoint: {orphaned_path}"
+                        )
+                except Exception as metrics_error:
+                    print(
+                        "  Failed to reconcile metrics log: "
+                        f"{metrics_error} — continuing with empty metrics"
+                    )
+                    metrics_log = []
+                    total_games = 0
             print(f"  Resumed from: {latest_cp} (iteration {iteration})")
         except Exception as e:
             print(f"  Failed to load checkpoint: {e} — starting fresh")
@@ -188,9 +404,7 @@ def train(config: TrainingConfig) -> None:
 
     # If an explicit best checkpoint exists, prefer it for self-play gating.
     if os.path.exists(best_checkpoint_path):
-        best_net = UltimateTTTNetwork(
-            channels=config.channels, num_blocks=config.num_blocks
-        ).to(config.device)
+        best_net = model_factory_mod.create_network(model_config).to(config.device)
         best_meta = load_checkpoint(best_checkpoint_path, best_net)
         best_network_state = clone_state_dict(best_net.state_dict())
         last_arena_win_rate = float(best_meta.get('elo', last_arena_win_rate))
@@ -206,15 +420,17 @@ def train(config: TrainingConfig) -> None:
             print(f"  WARNING: pretrain_checkpoint not found: {config.pretrain_checkpoint}")
 
     # Keep a running best_net model to play against
-    best_net = UltimateTTTNetwork(
-        channels=config.channels, num_blocks=config.num_blocks
-    ).to(config.device)
+    best_net = model_factory_mod.create_network(model_config).to(config.device)
     best_net.load_state_dict(best_network_state)
     best_net.eval()
 
     print(f"Starting training with config:")
-    print(f"  Mcripts device: {config.device} | Train device: {train_device}")
-    print(f"  Network: {config.channels}ch x {config.num_blocks}blocks")
+    print(f"  MCTS device: {config.device} | Train device: {train_device}")
+    depth_label = 'layers' if config.architecture == 'transformer' else 'blocks'
+    print(
+        f"  Network: {config.architecture} {config.channels}ch x "
+        f"{config.num_blocks}{depth_label}"
+    )
     num_params = sum(p.numel() for p in network.parameters())
     print(f"  Parameters: {num_params:,}")
     print()
@@ -255,6 +471,7 @@ def train(config: TrainingConfig) -> None:
                 num_reanalyzed=config.num_reanalyzed,
                 reanalysis_min_prefix_plies=config.reanalysis_min_prefix_plies,
                 reanalysis_max_prefix_plies=config.reanalysis_max_prefix_plies,
+                self_play_batch_size=config.self_play_batch_size,
                 device=config.device,
             )
             for record in records:
@@ -314,6 +531,11 @@ def train(config: TrainingConfig) -> None:
                 'time_seconds': time.time() - iter_start,
             }
 
+            # Advance the learning-rate schedule once for the completed
+            # optimizer phase before any checkpoint is written. This makes a
+            # checkpoint represent the complete state at ``iteration``.
+            scheduler.step()
+
             # 3. EVALUATE vs random opponent AND best model
             if iteration % config.arena_every_n == 0:
                 try:
@@ -361,26 +583,34 @@ def train(config: TrainingConfig) -> None:
                     )
                     
                     win_rate = arena_result.win_rate
+                    score_rate = arena_result.score_rate
                     metrics['arena_win_rate'] = win_rate
+                    metrics['arena_score_rate'] = score_rate
                     metrics['arena_wins'] = arena_result.wins
                     metrics['arena_losses'] = arena_result.losses
                     metrics['arena_draws'] = arena_result.draws
-                    last_arena_win_rate = win_rate
+                    last_arena_win_rate = score_rate
                     print(f"  Vs Best Model: {arena_result.wins}W/{arena_result.losses}L/{arena_result.draws}D "
-                          f"(win_rate={win_rate:.3f})")
+                          f"(win_rate={win_rate:.3f}, score={score_rate:.3f})")
 
                     # 4. CHECKPOINT if new network beats best_model.pt
-                    if win_rate > config.win_rate_threshold:
+                    if score_rate > config.win_rate_threshold:
                         best_network_state = clone_state_dict(network.state_dict())
                         best_net.load_state_dict(best_network_state)
                         patience_counter = 0  # reset patience
                         
-                        path = save_checkpoint(network, optimizer, iteration,
-                                               win_rate, config.checkpoint_dir)
+                        path = save_checkpoint(
+                            network, optimizer, iteration, score_rate,
+                            config.checkpoint_dir, scheduler=scheduler,
+                        )
                         save_checkpoint(network, optimizer, iteration,
-                                        win_rate, config.checkpoint_dir,
-                                        filename_override='best_model.pt')
-                        print(f"  New best network (wr={win_rate:.3f})! Patience reset. Saved to {path}")
+                                        score_rate, config.checkpoint_dir,
+                                        filename_override='best_model.pt',
+                                        scheduler=scheduler)
+                        print(
+                            f"  New best network (score={score_rate:.3f})! "
+                            f"Patience reset. Saved to {path}"
+                        )
                     else:
                         patience_counter += 1
                         print(f"  Did not beat best network. Patience: {patience_counter}/{config.early_stopping_patience}")
@@ -394,8 +624,10 @@ def train(config: TrainingConfig) -> None:
 
             # Periodic checkpoint save (regardless of arena)
             if iteration % config.checkpoint_every_n == 0:
-                path = save_checkpoint(network, optimizer, iteration,
-                                       last_arena_win_rate, config.checkpoint_dir)
+                path = save_checkpoint(
+                    network, optimizer, iteration, last_arena_win_rate,
+                    config.checkpoint_dir, scheduler=scheduler,
+                )
                 print(f"  Periodic checkpoint saved to {path}")
                 # Persist replay buffer alongside checkpoint
                 buffer.save_to_file(buffer_path)
@@ -411,11 +643,12 @@ def train(config: TrainingConfig) -> None:
             with open(metrics_path, 'w') as f:
                 json.dump(metrics_log, f, indent=2)
 
-            scheduler.step()
-
     except KeyboardInterrupt:
         print(f"\nTraining interrupted at iteration {iteration}")
-        path = save_checkpoint(network, optimizer, iteration, last_arena_win_rate, config.checkpoint_dir)
+        path = save_checkpoint(
+            network, optimizer, iteration, last_arena_win_rate,
+            config.checkpoint_dir, scheduler=scheduler,
+        )
         print(f"Final checkpoint saved to {path}")
 
 
@@ -527,6 +760,91 @@ def clone_state_dict(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Ten
     return {k: v.detach().cpu().clone() for k, v in state_dict.items()}
 
 
+def _write_json_atomically(path: str | os.PathLike[str], payload: Any) -> None:
+    """Replace a JSON file only after its complete replacement is durable."""
+    destination = Path(path)
+    temporary = destination.with_name(f".{destination.name}.tmp")
+    with temporary.open('w', encoding='utf-8') as handle:
+        json.dump(payload, handle, indent=2)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, destination)
+
+
+def reconcile_metrics_log(
+    metrics_path: str | os.PathLike[str],
+    checkpoint_iteration: int,
+) -> tuple[list[dict], int, str | None]:
+    """Align metrics with a durable checkpoint and archive newer rows.
+
+    A process can finish one or more iterations after the most recent periodic
+    checkpoint and then be killed. Those metric rows describe weights and
+    replay positions that no longer exist after resume. Keeping them in the
+    canonical log would create duplicate iteration numbers and an incorrect
+    game count.
+    """
+    path = Path(metrics_path)
+    with path.open(encoding='utf-8') as handle:
+        loaded = json.load(handle)
+    if not isinstance(loaded, list):
+        raise ValueError("training metrics must be a JSON list")
+
+    durable: list[dict] = []
+    orphaned: list[dict] = []
+    for index, entry in enumerate(loaded):
+        if not isinstance(entry, dict) or not isinstance(entry.get('iteration'), int):
+            raise ValueError(f"invalid training metric at index {index}")
+        if entry['iteration'] <= checkpoint_iteration:
+            durable.append(entry)
+        else:
+            orphaned.append(entry)
+
+    orphaned_path: str | None = None
+    if orphaned:
+        stem = f"training_metrics_orphaned_after_iter{checkpoint_iteration:05d}"
+        archive = path.with_name(f"{stem}.json")
+        suffix = 1
+        while archive.exists():
+            archive = path.with_name(f"{stem}_{suffix}.json")
+            suffix += 1
+        _write_json_atomically(
+            archive,
+            {
+                'checkpoint_iteration': checkpoint_iteration,
+                'orphaned_metrics': orphaned,
+            },
+        )
+        _write_json_atomically(path, durable)
+        orphaned_path = str(archive)
+
+    total_games = durable[-1].get('games_played', 0) if durable else 0
+    return durable, int(total_games), orphaned_path
+
+
+def _reconstruct_scheduler_state(
+    scheduler: torch.optim.lr_scheduler.LRScheduler,
+    iteration: int,
+) -> None:
+    """Reconstruct scheduler state for checkpoints created before it was saved."""
+    if isinstance(scheduler, torch.optim.lr_scheduler.StepLR):
+        factor = scheduler.gamma ** (iteration // scheduler.step_size)
+        learning_rates = [base_lr * factor for base_lr in scheduler.base_lrs]
+        for param_group, learning_rate in zip(
+            scheduler.optimizer.param_groups, learning_rates
+        ):
+            param_group['lr'] = learning_rate
+    else:
+        learning_rates = [
+            float(group['lr']) for group in scheduler.optimizer.param_groups
+        ]
+
+    state = scheduler.state_dict()
+    state['last_epoch'] = iteration
+    state['_step_count'] = iteration + 1
+    state['_last_lr'] = learning_rates
+    scheduler.load_state_dict(state)
+
+
 def save_checkpoint(
     network: nn.Module,
     optimizer: torch.optim.Optimizer,
@@ -534,6 +852,7 @@ def save_checkpoint(
     elo: float,
     checkpoint_dir: str,
     filename_override: str = "",
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
 ) -> str:
     """Save network and optimizer state.
 
@@ -545,6 +864,7 @@ def save_checkpoint(
         iteration: Current iteration number.
         elo: Current Elo rating.
         checkpoint_dir: Directory to save to.
+        scheduler: Optional learning-rate scheduler to persist.
 
     Returns:
         Path to saved checkpoint file.
@@ -553,13 +873,24 @@ def save_checkpoint(
     filename = filename_override if filename_override else f"checkpoint_iter{iteration:05d}_elo{elo:.0f}.pt"
     path = os.path.join(checkpoint_dir, filename)
 
-    torch.save({
+    model_factory_mod = __import__(
+        '02_network.model_factory', fromlist=['model_config_for_network']
+    )
+    payload = {
+        'checkpoint_format_version': 2,
+        'model_config': model_factory_mod.model_config_for_network(network).to_dict(),
         'network_state_dict': network.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'iteration': iteration,
         'elo': elo,
         'timestamp': time.time(),
-    }, path)
+    }
+    training_config = getattr(network, 'training_config', None)
+    if training_config is not None:
+        payload['training_config'] = training_config
+    if scheduler is not None:
+        payload['scheduler_state_dict'] = scheduler.state_dict()
+    torch.save(payload, path)
 
     return path
 
@@ -568,6 +899,7 @@ def load_checkpoint(
     path: str,
     network: nn.Module,
     optimizer: torch.optim.Optimizer | None = None,
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
 ) -> dict:
     """Load network (and optionally optimizer) from checkpoint.
 
@@ -575,11 +907,26 @@ def load_checkpoint(
         path: Path to checkpoint file.
         network: Network to load weights into.
         optimizer: Optional optimizer to load state into.
+        scheduler: Optional learning-rate scheduler to restore.
 
     Returns:
         Dict with 'iteration', 'elo', 'timestamp'.
     """
-    checkpoint = torch.load(path, weights_only=False)
+    # Checkpoints may contain Adam moments last used on MPS or CUDA. Always
+    # deserialize on CPU first so recovery also works when that accelerator is
+    # unavailable; optimizer tensors are moved to the network device below.
+    checkpoint = torch.load(path, weights_only=False, map_location='cpu')
+    model_factory_mod = __import__(
+        '02_network.model_factory', fromlist=['model_config_from_checkpoint']
+    )
+    expected_config = model_factory_mod.model_config_for_network(network)
+    checkpoint_config = model_factory_mod.model_config_from_checkpoint(checkpoint)
+    if checkpoint.get('model_config') is not None and checkpoint_config != expected_config:
+        raise ValueError(
+            "checkpoint architecture does not match the constructed network: "
+            f"checkpoint={checkpoint_config.to_dict()} "
+            f"network={expected_config.to_dict()}"
+        )
     network.load_state_dict(checkpoint['network_state_dict'])
 
     value_head = getattr(network, 'value_head', None)
@@ -601,11 +948,29 @@ def load_checkpoint(
         # the old shape and must not be attached to the migrated parameters.
         print("  Migrated legacy scalar value head; optimizer state was reset")
 
+    scheduler_state_restored = False
+    scheduler_state_reconstructed = False
+    if scheduler is not None:
+        if 'scheduler_state_dict' in checkpoint:
+            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            scheduler_state_restored = True
+        else:
+            _reconstruct_scheduler_state(
+                scheduler, int(checkpoint.get('iteration', 0))
+            )
+            scheduler_state_reconstructed = True
+            print(
+                "  Checkpoint has no scheduler state; reconstructed it at "
+                f"iteration {checkpoint.get('iteration', 0)}"
+            )
+
     return {
         'iteration': checkpoint.get('iteration', 0),
         'elo': checkpoint.get('elo', 1000.0),
         'timestamp': checkpoint.get('timestamp', 0),
         'legacy_value_head_migrated': legacy_value_head,
+        'scheduler_state_restored': scheduler_state_restored,
+        'scheduler_state_reconstructed': scheduler_state_reconstructed,
     }
 
 

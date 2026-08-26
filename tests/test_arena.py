@@ -25,7 +25,19 @@ class TestArena:
         result = arena_mod.run_arena(net1, net2, num_games=2,
                                       num_simulations=10, device='cpu')
         assert 0.0 <= result.win_rate <= 1.0
+        assert 0.0 <= result.score_rate <= 1.0
         assert isinstance(result.new_is_better, bool)
+
+    def test_draw_is_half_a_point_for_promotion(self):
+        result = arena_mod.ArenaResult(
+            wins=4,
+            losses=3,
+            draws=3,
+            win_rate=0.4,
+            win_rate_threshold=0.54,
+        )
+        assert result.score_rate == pytest.approx(0.55)
+        assert result.new_is_better
 
     def test_single_game(self):
         net1 = network_mod.UltimateTTTNetwork(channels=32, num_blocks=2)

@@ -21,6 +21,10 @@ This project implements a self-learning AI for Ultimate Tic-Tac-Toe using an **A
 - **Self-Play**: The AI plays thousands of games against itself using Monte Carlo Tree Search (MCTS) guided by the neural network's policy and value estimates.
 - **MCTS**: Evaluates moves by simulating future trajectories. It balances exploration (trying new moves) and exploitation (picking known good moves). 
 - **Training**: The outcomes of these self-play games (who won, and what the MCTS search probabilities were) are saved into a replay buffer. The neural network is then trained via supervised learning on this replay buffer to minimize the value loss and policy cross-entropy.
+- **Configuration**: Architecture and run settings come from a validated JSON
+  file such as `configs/training/lite_transformer.json`; do not add a second
+  architecture-specific launcher. New checkpoints persist the complete model
+  configuration and all consumers construct through `02_network/model_factory.py`.
 
 ---
 

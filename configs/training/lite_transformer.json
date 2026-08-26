@@ -1,0 +1,70 @@
+{
+  "config_version": 1,
+  "name": "lite_transformer_wdl_v1",
+  "model": {
+    "config_version": 1,
+    "architecture": "transformer",
+    "channels": 96,
+    "num_layers": 3,
+    "num_heads": 4,
+    "ffn_multiplier": 2,
+    "dropout": 0.1,
+    "position_encoding": "hierarchical",
+    "value_channels": 8,
+    "value_hidden_size": 128,
+    "value_feature_size": 64
+  },
+  "self_play": {
+    "num_self_play": 8,
+    "num_vs_random": 0,
+    "num_reanalyzed": 2,
+    "num_vs_best": 0,
+    "num_simulations": 200,
+    "temp_initial": 2.0,
+    "temp_decay_rate": 0.94,
+    "temp_min": 0.15,
+    "dirichlet_alpha": 0.3,
+    "dirichlet_epsilon": 0.35,
+    "dirichlet_epsilon_boost": 0.55,
+    "dirichlet_boost_plies": 5,
+    "forced_opening_fraction": 0.25,
+    "reanalysis_min_prefix_plies": 4,
+    "reanalysis_max_prefix_plies": 20,
+    "self_play_batch_size": 8
+  },
+  "optimization": {
+    "batch_size": 128,
+    "batches_per_iteration": 50,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "grad_clip_norm": 1.0,
+    "lr_decay_every_n": 50,
+    "lr_decay_gamma": 0.5
+  },
+  "loss": {
+    "lambda_value": 1.0,
+    "lambda_score": 0.5,
+    "lambda_ownership": 0.5,
+    "lambda_opp": 0.15
+  },
+  "evaluation": {
+    "arena_every_n": 10,
+    "arena_games": 20,
+    "win_rate_threshold": 0.55,
+    "max_iterations": 300,
+    "early_stopping_patience": 10
+  },
+  "replay_buffer": {
+    "capacity": 100000
+  },
+  "checkpointing": {
+    "directory": "checkpoints/lite_transformer_wdl_v1/",
+    "every_n": 5,
+    "pretrain_checkpoint": ""
+  },
+  "runtime": {
+    "device": "cpu",
+    "train_device": "auto",
+    "seed": 42
+  }
+}
