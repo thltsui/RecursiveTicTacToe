@@ -776,6 +776,11 @@ body {
     text-align: right;
 }
 
+.top-move-q.low-sample {
+    color: var(--text-dim);
+    font-size: 10px;
+}
+
 .top-move-prior {
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;

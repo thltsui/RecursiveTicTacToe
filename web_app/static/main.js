@@ -13,6 +13,8 @@ let isThinking = false;
 let gameActive = false;
 let currentAnalysis = null;
 let vizMode = 'none'; // 'none', 'visits', 'policy', 'qvalue', 'opponent'
+let analysisRequestVersion = 0;
+let analysisAbortController = null;
 
 // Multiplayer / Online state
 let gameMode = 'ai'; // 'ai' or 'online'
@@ -217,6 +219,7 @@ function buildOwnershipGrid() {
 // ── AI Game (REST API) ───────────────────────────────────────────────────
 
 async function startNewGame() {
+    invalidatePendingAnalysis();
     setStatus('Starting new game...', '');
     currentAnalysis = null;
     try {
@@ -241,14 +244,16 @@ async function startNewGame() {
 async function sendMove(move, stateToSend) {
     if (isThinking || !gameActive) return;
 
+    invalidatePendingAnalysis();
     isThinking = true;
     setStatus('AI is thinking…', 'ai-turn');
+    const moveDifficulty = difficulty;
 
     try {
         const res = await fetch('/api/move', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ state: stateToSend, move, difficulty }),
+            body: JSON.stringify({ state: stateToSend, move, difficulty: moveDifficulty }),
         });
 
         if (!res.ok) {
@@ -268,7 +273,10 @@ async function sendMove(move, stateToSend) {
         // Store analysis
         if (data.analysis) {
             currentAnalysis = data.analysis;
-            updateAnalysisPanel(data.analysis);
+            const refinementTarget = data.analysis.is_preview
+                ? data.analysis.target_sims
+                : null;
+            updateAnalysisPanel(data.analysis, refinementTarget);
         }
 
         renderBoard();
@@ -292,6 +300,10 @@ async function sendMove(move, stateToSend) {
                 ? 'any board'
                 : `board ${keypadBoard(gameState.active_sub_board)}`;
             setStatus(`Your turn — play in ${boardHint}`, 'your-turn');
+
+            if (data.analysis && data.analysis.is_preview) {
+                void refineAnalysis(data, moveDifficulty);
+            }
         }
     } catch (err) {
         console.error('Network error:', err);
@@ -300,10 +312,89 @@ async function sendMove(move, stateToSend) {
     }
 }
 
+function invalidatePendingAnalysis() {
+    analysisRequestVersion += 1;
+    if (analysisAbortController) {
+        analysisAbortController.abort();
+        analysisAbortController = null;
+    }
+}
+
+function apiState(state) {
+    return {
+        cells: state.cells,
+        sub_board_results: state.sub_board_results,
+        active_sub_board: state.active_sub_board,
+        current_player: state.current_player,
+        move_count: state.move_count,
+        is_terminal: state.is_terminal,
+        winner: state.winner,
+    };
+}
+
+function positionKey(state) {
+    if (!state) return '';
+    return JSON.stringify([
+        state.cells,
+        state.sub_board_results,
+        state.active_sub_board,
+        state.current_player,
+        state.move_count,
+        state.is_terminal,
+        state.winner,
+    ]);
+}
+
+async function refineAnalysis(state, analysisDifficulty) {
+    const requestedPosition = positionKey(state);
+    const requestVersion = ++analysisRequestVersion;
+    const controller = new AbortController();
+    analysisAbortController = controller;
+
+    try {
+        const response = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                state: apiState(state),
+                difficulty: analysisDifficulty,
+            }),
+            signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+
+        if (
+            requestVersion !== analysisRequestVersion
+            || requestedPosition !== positionKey(gameState)
+            || gameMode !== 'ai'
+            || !gameActive
+        ) {
+            return;
+        }
+
+        currentAnalysis = data.analysis;
+        updateAnalysisPanel(data.analysis);
+        renderHeatmap();
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            console.error('Could not refine analysis', error);
+            if (requestVersion === analysisRequestVersion && currentAnalysis) {
+                updateAnalysisPanel(currentAnalysis);
+            }
+        }
+    } finally {
+        if (requestVersion === analysisRequestVersion) {
+            analysisAbortController = null;
+        }
+    }
+}
+
 // ── Multiplayer (Socket.IO) ───────────────────────────────────────────────
 
 function startMultiplayerGame(roomToJoin = null) {
     // Clean up current game
+    invalidatePendingAnalysis();
     hideResult();
     resetAnalysisPanel();
     if (socket) {
@@ -586,9 +677,10 @@ function renderHeatmap() {
 
         case 'qvalue':
             values = a.mcts_q_values;
+            const minQVisits = a.min_q_display_visits || 10;
             colorFn = (v, idx) => {
-                // Only color cells that have been visited
-                if (a.mcts_visits[idx] === 0) return 'transparent';
+                // Sparse Q means are dominated by one or two leaf evaluations.
+                if (a.mcts_visits[idx] < minQVisits) return 'transparent';
                 // Q-value: positive = good for current player, negative = bad
                 if (v > 0) {
                     return `rgba(6, 214, 160, ${Math.min(Math.abs(v), 1) * 0.65})`;
@@ -597,7 +689,7 @@ function renderHeatmap() {
                 }
             };
             labelFn = (v, idx) => {
-                if (a.mcts_visits[idx] === 0) return '';
+                if (a.mcts_visits[idx] < minQVisits) return '';
                 return v >= 0 ? '+' + v.toFixed(2) : v.toFixed(2);
             };
             break;
@@ -674,7 +766,7 @@ function roundedWdlPercentages(wdl) {
     return { win: rounded[0], draw: rounded[1], loss: rounded[2] };
 }
 
-function updateAnalysisPanel(analysis) {
+function updateAnalysisPanel(analysis, refinementTarget = null) {
     // Analysis is from the HUMAN's perspective (current player).  W/D/L are
     // separate outcomes; a draw is never assigned to either side's win rate.
     const wdl = analysis.wdl_probs || { win: 0.5, draw: 0.0, loss: 0.5 };
@@ -696,7 +788,10 @@ function updateAnalysisPanel(analysis) {
     const sourceLabel = analysis.evaluation_source === 'mcts_recommended_move'
         ? `${analysis.total_sims} sims`
         : 'raw head';
-    evalCalibrationStatus.textContent = `${estimateLabel} · ${sourceLabel}`;
+    const refinementLabel = refinementTarget && refinementTarget > analysis.total_sims
+        ? ` · refining to ${Number(refinementTarget).toLocaleString()}…`
+        : '';
+    evalCalibrationStatus.textContent = `${estimateLabel} · ${sourceLabel}${refinementLabel}`;
 
     // The balance bar is expected score only; the percentages above remain W/D/L.
     const expectedScorePct = humanWinPct + drawPct / 2;
@@ -748,7 +843,7 @@ function updateAnalysisPanel(analysis) {
     updateOwnership(analysis.ownership);
 
     // Top moves
-    updateTopMoves(analysis.top_moves);
+    updateTopMoves(analysis.top_moves, analysis.min_q_display_visits);
 }
 
 function resetAnalysisPanel() {
@@ -830,7 +925,7 @@ function updateOwnership(ownership) {
     }
 }
 
-function updateTopMoves(topMoves) {
+function updateTopMoves(topMoves, minQDisplayVisits = 10) {
     topMovesList.innerHTML = '';
     if (!topMoves || topMoves.length === 0) return;
 
@@ -866,9 +961,15 @@ function updateTopMoves(topMoves) {
         // Q-Value
         const qVal = document.createElement('span');
         qVal.className = 'top-move-q';
-        const q = m.q_value || 0;
-        qVal.textContent = (q >= 0 ? '+' : '') + q.toFixed(3);
-        qVal.style.color = q > 0.05 ? 'var(--cyan)' : q < -0.05 ? 'var(--magenta)' : 'var(--text-dim)';
+        if (m.visits < minQDisplayVisits) {
+            qVal.textContent = `n=${m.visits}`;
+            qVal.classList.add('low-sample');
+            qVal.title = `Q hidden until ${minQDisplayVisits} visits`;
+        } else {
+            const q = Number.isFinite(m.q_value) ? m.q_value : 0;
+            qVal.textContent = (q >= 0 ? '+' : '') + q.toFixed(3);
+            qVal.style.color = q > 0.05 ? 'var(--cyan)' : q < -0.05 ? 'var(--magenta)' : 'var(--text-dim)';
+        }
 
         // Prior
         const prior = document.createElement('span');

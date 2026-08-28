@@ -65,6 +65,13 @@ network_metadata = {}
 # The lightweight Transformer leaves enough latency headroom to give hard mode
 # a materially deeper search while keeping easy and medium responsive.
 DIFFICULTY_SIMS = {'easy': 80, 'medium': 200, 'hard': 800}
+# Return a fast first analysis after the AI moves, then let the browser request
+# the full difficulty budget without keeping the move response blocked.
+ANALYSIS_PREVIEW_SIMS = 100
+# A bounded mean backed by only one or two leaves looks deceptively precise.
+# The API still returns every Q value for diagnostics, but tells the UI to hide
+# sparse estimates until this many visits have accumulated.
+MIN_Q_DISPLAY_VISITS = 10
 
 
 def exploration_noise_for_difficulty(difficulty: str) -> bool:
@@ -353,6 +360,9 @@ def get_analysis(state, sims, add_noise=False):
         'ownership': ownership,
         'top_moves': top_moves,
         'total_sims': int(total_visits),
+        'target_sims': int(sims),
+        'is_preview': False,
+        'min_q_display_visits': MIN_Q_DISPLAY_VISITS,
     }, root
 
 
@@ -461,10 +471,15 @@ def do_ai_move(state, sims, difficulty='medium'):
     result = state_to_dict(state)
     result['ai_move'] = int(ai_move)
 
-    # Step 3: Analyze the resulting position from the HUMAN's perspective
-    # Cap to 100 sims so the second pass takes <0.3s instead of doubling the wait time
+    # Step 3: Analyze the resulting position from the HUMAN's perspective.
+    # Return a fast preview so the move response stays responsive.  The client
+    # follows it with /api/analyze when the selected difficulty has a deeper
+    # budget, and replaces the preview only if the board is still unchanged.
     if not state.is_terminal:
-        human_analysis, _ = get_analysis(state, min(sims, 100))
+        preview_sims = min(sims, ANALYSIS_PREVIEW_SIMS)
+        human_analysis, _ = get_analysis(state, preview_sims)
+        human_analysis['target_sims'] = int(sims)
+        human_analysis['is_preview'] = preview_sims < sims
         result['analysis'] = human_analysis
     else:
         # Game is over — no analysis needed, but include final eval
